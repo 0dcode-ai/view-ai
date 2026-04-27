@@ -4,6 +4,13 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "tsConfigPath": "tsconfig.build.json",
-    "deleteOutDir": true
+    "deleteOutDir": true,
+    "assets": [
+      {
+        "include": "generated/prisma/**/*",
+        "outDir": "dist/src"
+      }
+    ],
+    "watchAssets": true
   }
 }

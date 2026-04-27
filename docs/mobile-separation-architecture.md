@@ -15,26 +15,49 @@ This repository is now organized as a transition monorepo:
    npm install
    ```
 
-2. Configure environment variables:
+2. Start a local Postgres database:
 
-   - `apps/api` reads `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_DISABLED`, `DEV_USER_*`.
-   - `apps/mobile` reads `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+   ```bash
+   docker compose up -d postgres
+   ```
 
-3. Generate and push the API database schema:
+   The checked-in dev examples point the API at:
+
+   ```bash
+   postgresql://interview:interview@localhost:54329/interview_ai?schema=public
+   ```
+
+3. Configure environment variables:
+
+   - `apps/api/.env` reads `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `AUTH_DISABLED`, `DEV_USER_*`.
+   - `apps/mobile/.env` reads `EXPO_PUBLIC_API_BASE_URL`, `EXPO_PUBLIC_SUPABASE_URL`, `EXPO_PUBLIC_SUPABASE_ANON_KEY`.
+   - For local development without Supabase Auth, keep `AUTH_DISABLED=true` in `apps/api/.env`.
+
+4. Generate and push the API database schema:
 
    ```bash
    npm run prisma:generate -w apps/api
    npm run prisma:push -w apps/api
    ```
 
-4. Run the separated API and mobile app:
+5. Import the built-in question bank and optional legacy data:
+
+   ```bash
+   npm run migrate:legacy -w apps/api
+   ```
+
+6. Run the separated API and mobile app:
 
    ```bash
    npm run dev:api
    npm run dev:mobile
    ```
 
-For local development without Supabase Auth, set `AUTH_DISABLED=true` for `apps/api`.
+When testing on a physical phone, change `apps/mobile/.env` to use your Mac's LAN IP instead of `localhost`, for example:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL="http://192.168.1.23:4000/v1"
+```
 
 ## Data Migration
 

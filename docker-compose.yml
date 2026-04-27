@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: interview-ai-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: interview
+      POSTGRES_PASSWORD: interview
+      POSTGRES_DB: interview_ai
+    ports:
+      - "54329:5432"
+    volumes:
+      - interview-ai-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U interview -d interview_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  interview-ai-postgres-data:

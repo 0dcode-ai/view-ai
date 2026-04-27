@@ -27,9 +27,10 @@ export class SupabaseAuthGuard implements CanActivate {
     }>();
 
     if (process.env.AUTH_DISABLED === "true") {
+      const devEmail = process.env.DEV_USER_EMAIL || "dev@example.com";
       request.user = {
-        id: process.env.DEV_USER_ID || "dev-user",
-        email: process.env.DEV_USER_EMAIL || "dev@example.com",
+        id: process.env.DEV_USER_ID || devEmail,
+        email: devEmail,
       };
       return true;
     }
