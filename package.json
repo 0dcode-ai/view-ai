@@ -1,0 +1,57 @@
+{
+  "name": "interview-ai-mvp",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "next dev",
+    "dev:web": "next dev",
+    "dev:api": "npm run start:dev -w apps/api",
+    "dev:mobile": "npm run start -w apps/mobile",
+    "build": "prisma generate && next build",
+    "build:web": "prisma generate && next build",
+    "build:api": "npm run build -w apps/api",
+    "build:shared": "npm run build -w packages/shared",
+    "typecheck": "tsc --noEmit",
+    "typecheck:api": "npm run typecheck -w apps/api",
+    "typecheck:mobile": "npm run typecheck -w apps/mobile",
+    "typecheck:shared": "npm run typecheck -w packages/shared",
+    "test": "vitest run",
+    "test:api": "npm run test -w apps/api",
+    "db:push": "prisma generate && node scripts/init-db.js",
+    "legacy:export": "node scripts/export-legacy-data.js",
+    "prisma:generate": "prisma generate",
+    "studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "@radix-ui/react-select": "^2.2.6",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tailwindcss/postcss": "^4.2.4",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.4.2",
+    "lucide-react": "latest",
+    "next": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.2.4",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "prisma": "^6.19.3",
+    "typescript": "latest",
+    "vitest": "latest"
+  },
+  "overrides": {
+    "postcss": "^8.5.10"
+  }
+}

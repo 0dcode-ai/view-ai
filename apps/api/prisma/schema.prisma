@@ -1,0 +1,354 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model UserProfile {
+  id                String             @id
+  email             String             @unique
+  displayName       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  knowledgeCards    KnowledgeCard[]
+  resumeProfiles    ResumeProfile[]
+  jobTargets        JobTarget[]
+  interviewSessions InterviewSession[]
+  reviewCards       ReviewCard[]
+  sprintPlans       SprintPlan[]
+  labSessions       LabSession[]
+  experienceReports ExperienceReport[]
+}
+
+model Company {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  aliasesJson       String             @default("[]")
+  note              String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  interviewSessions InterviewSession[]
+  experienceReports ExperienceReport[]
+  jobTargets        JobTarget[]
+  knowledgeCards    KnowledgeCard[]
+  questionTemplates QuestionTemplate[]
+  sprintPlans       SprintPlan[]
+}
+
+model Topic {
+  id                Int                @id @default(autoincrement())
+  name              String             @unique
+  description       String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  knowledgeCards    KnowledgeCard[]
+  questionTemplates QuestionTemplate[]
+}
+
+model QuestionTemplate {
+  id               Int             @id @default(autoincrement())
+  legacyId         Int?
+  sourceKey        String          @unique
+  question         String
+  answer           String
+  companyId        Int?
+  topicId          Int?
+  roleDirection    String?
+  questionType     String          @default("technical")
+  abilityDimension String          @default("基础知识")
+  priorityScore    Int             @default(50)
+  tagsJson         String          @default("[]")
+  difficulty       String          @default("medium")
+  source           String?
+  note             String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  company          Company?        @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  knowledgeCards   KnowledgeCard[]
+  topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([topicId])
+  @@index([difficulty])
+  @@index([questionType])
+  @@index([priorityScore])
+}
+
+model KnowledgeCard {
+  id               Int               @id @default(autoincrement())
+  legacyId         Int?
+  userId           String
+  templateId       Int?
+  question         String
+  answer           String
+  companyId        Int?
+  topicId          Int?
+  roleDirection    String?
+  questionType     String            @default("technical")
+  abilityDimension String            @default("基础知识")
+  mastery          Int               @default(0)
+  reviewCount      Int               @default(0)
+  mistakeCount     Int               @default(0)
+  lastReviewedAt   DateTime?
+  nextReviewAt     DateTime?
+  priorityScore    Int               @default(50)
+  tagsJson         String            @default("[]")
+  difficulty       String            @default("medium")
+  source           String?
+  note             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  company          Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  reviewCards      ReviewCard[]
+  template         QuestionTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  topic            Topic?            @relation(fields: [topicId], references: [id], onDelete: SetNull)
+  user             UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, templateId])
+  @@index([userId])
+  @@index([companyId])
+  @@index([topicId])
+  @@index([difficulty])
+  @@index([mastery])
+  @@index([questionType])
+  @@index([priorityScore])
+}
+
+model ResumeProfile {
+  id                    Int                @id @default(autoincrement())
+  legacyId              Int?
+  userId                String
+  title                 String             @default("我的简历")
+  rawText               String
+  parsedJson            String             @default("{}")
+  followUpQuestionsJson String             @default("[]")
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  interviewSessions     InterviewSession[]
+  jobTargets            JobTarget[]
+  sprintPlans           SprintPlan[]
+  user                  UserProfile        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model JobTarget {
+  id                Int                @id @default(autoincrement())
+  legacyId          Int?
+  userId            String
+  companyId         Int?
+  resumeProfileId   Int?
+  roleName          String
+  rawJd             String
+  parsedJson        String             @default("{}")
+  matchJson         String             @default("{}")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  resumeProfile     ResumeProfile?     @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
+  interviewSessions InterviewSession[]
+  sprintPlans       SprintPlan[]
+  user              UserProfile        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([resumeProfileId])
+}
+
+model InterviewSession {
+  id              Int             @id @default(autoincrement())
+  legacyId        Int?
+  userId          String
+  mode            String
+  roundType       String          @default("first_round")
+  deliveryMode    String          @default("text")
+  targetRole      String?
+  targetCompanyId Int?
+  resumeProfileId Int?
+  jobTargetId     Int?
+  status          String          @default("active")
+  summary         String?
+  scoreJson       String          @default("{}")
+  expressionJson  String          @default("{}")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  company         Company?        @relation(fields: [targetCompanyId], references: [id], onDelete: SetNull)
+  jobTarget       JobTarget?      @relation(fields: [jobTargetId], references: [id], onDelete: SetNull)
+  resumeProfile   ResumeProfile?  @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
+  reviewCards     ReviewCard[]
+  turns           InterviewTurn[]
+  user            UserProfile     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([mode])
+  @@index([roundType])
+  @@index([status])
+  @@index([jobTargetId])
+}
+
+model InterviewTurn {
+  id                Int              @id @default(autoincrement())
+  legacyId          Int?
+  sessionId         Int
+  order             Int
+  question          String
+  questionSource    String?
+  answer            String?
+  feedback          String?
+  betterAnswer      String?
+  transcriptSource  String           @default("text")
+  answerDurationSec Int?
+  audioMetaJson     String           @default("{}")
+  expressionJson    String           @default("{}")
+  scoreJson         String           @default("{}")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, order])
+  @@index([sessionId])
+}
+
+model ReviewCard {
+  id              Int               @id @default(autoincrement())
+  legacyId        Int?
+  userId          String
+  sessionId       Int?
+  knowledgeCardId Int?
+  title           String
+  weakness        String
+  suggestion      String
+  status          String            @default("todo")
+  priority        Int               @default(50)
+  dueAt           DateTime?
+  tagsJson        String            @default("[]")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  knowledgeCard   KnowledgeCard?    @relation(fields: [knowledgeCardId], references: [id], onDelete: SetNull)
+  session         InterviewSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user            UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([sessionId])
+  @@index([priority])
+}
+
+model SprintPlan {
+  id              Int           @id @default(autoincrement())
+  legacyId        Int?
+  userId          String
+  companyId       Int?
+  jobTargetId     Int?
+  resumeProfileId Int?
+  title           String
+  targetRole      String?
+  interviewDate   DateTime?
+  days            Int           @default(7)
+  status          String        @default("active")
+  summary         String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  company         Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  jobTarget       JobTarget?    @relation(fields: [jobTargetId], references: [id], onDelete: SetNull)
+  resumeProfile   ResumeProfile? @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
+  tasks           SprintTask[]
+  user            UserProfile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([jobTargetId])
+  @@index([status])
+}
+
+model SprintTask {
+  id          Int        @id @default(autoincrement())
+  legacyId    Int?
+  planId      Int
+  dayIndex    Int
+  type        String
+  title       String
+  description String
+  status      String     @default("todo")
+  dueDate     DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  plan        SprintPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([status])
+  @@index([dayIndex])
+}
+
+model LabSession {
+  id            Int         @id @default(autoincrement())
+  legacyId      Int?
+  userId        String
+  type          String
+  roleDirection String?
+  title         String
+  prompt        String
+  starterCode   String?
+  content       String?
+  feedbackJson  String      @default("{}")
+  status        String      @default("active")
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([type])
+  @@index([status])
+}
+
+model ExperienceReport {
+  id              Int               @id @default(autoincrement())
+  legacyId        Int?
+  userId          String
+  companyId       Int?
+  roleName        String
+  level           String?
+  location        String?
+  interviewDate   DateTime?
+  result          String            @default("unknown")
+  difficulty      String            @default("medium")
+  sourceType      String            @default("self")
+  confidence      String            @default("medium")
+  verified        Boolean           @default(false)
+  durationMinutes Int?
+  rawText         String
+  summary         String?
+  tagsJson        String            @default("[]")
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  rounds          ExperienceRound[]
+  user            UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([roleName])
+  @@index([interviewDate])
+  @@index([verified])
+  @@index([confidence])
+}
+
+model ExperienceRound {
+  id               Int              @id @default(autoincrement())
+  legacyId         Int?
+  reportId         Int
+  order            Int
+  roundType        String
+  durationMinutes  Int?
+  interviewerStyle String?
+  focusAreasJson   String           @default("[]")
+  questionsJson    String           @default("[]")
+  notes            String?
+  report           ExperienceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+}

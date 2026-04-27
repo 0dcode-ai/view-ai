@@ -1,0 +1,38 @@
+{
+  "name": "@interview/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node dist/main.js",
+    "start:dev": "nest start --watch",
+    "build": "prisma generate --schema prisma/schema.prisma && nest build",
+    "typecheck": "prisma generate --schema prisma/schema.prisma && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:push": "prisma db push --schema prisma/schema.prisma",
+    "migrate:legacy": "tsx scripts/import-legacy-data.ts"
+  },
+  "dependencies": {
+    "@interview/shared": "0.1.0",
+    "@nestjs/common": "^11.1.9",
+    "@nestjs/core": "^11.1.9",
+    "@nestjs/platform-express": "^11.1.9",
+    "@nestjs/swagger": "^11.2.3",
+    "@prisma/client": "^6.19.3",
+    "@supabase/supabase-js": "^2.89.0",
+    "dotenv": "^17.4.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.14",
+    "@nestjs/testing": "^11.1.9",
+    "@types/node": "latest",
+    "prisma": "^6.19.3",
+    "tsx": "^4.21.0",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

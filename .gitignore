@@ -1,0 +1,13 @@
+.DS_Store
+.env.local
+.env*.local
+node_modules/
+.next/
+out/
+coverage/
+dist/
+*.tsbuildinfo
+prisma/*.db
+prisma/*.db-journal
+apps/api/src/generated/
+data/legacy-export.json
