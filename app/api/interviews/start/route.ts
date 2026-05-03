@@ -17,6 +17,9 @@ const bodySchema = z.object({
   jobTargetId: z.number().int().positive().optional(),
   roundType: z.string().default("first_round"),
   deliveryMode: z.enum(["text", "voice"]).default("text"),
+  seniority: z.enum(["junior", "mid", "senior", "staff"]).optional(),
+  salaryK: z.number().int().min(0).max(200).optional(),
+  difficulty: z.enum(["easy", "medium", "hard"]).optional(),
 });
 
 export async function POST(request: Request) {
@@ -47,6 +50,9 @@ export async function POST(request: Request) {
     roundType: parsed.data.roundType,
     targetCompany: company?.name,
     targetRole: parsed.data.targetRole || jobTarget?.roleName,
+    seniority: parsed.data.seniority,
+    salaryK: parsed.data.salaryK,
+    difficulty: parsed.data.difficulty,
     jobTarget: jobTarget
       ? {
           ...safeJsonParse(jobTarget.parsedJson, {
@@ -65,6 +71,7 @@ export async function POST(request: Request) {
         }
       : null,
     resume: resume ? safeJsonParse(resume.parsedJson, null) : null,
+    candidatePrep: resume ? safeJsonParse(resume.candidatePrepJson, null) : null,
     knowledgeCards: knowledgeCards.map((card) => ({
       id: card.id,
       question: card.question,
@@ -88,6 +95,13 @@ export async function POST(request: Request) {
       targetCompanyId: company?.id,
       resumeProfileId: resume?.id,
       jobTargetId: jobTarget?.id,
+      expressionJson: JSON.stringify({
+        difficultyContext: {
+          seniority: parsed.data.seniority ?? "mid",
+          salaryK: parsed.data.salaryK ?? 0,
+          difficulty: parsed.data.difficulty ?? "medium",
+        },
+      }),
       turns: {
         create: {
           order: 1,

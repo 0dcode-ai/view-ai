@@ -7,8 +7,8 @@ interface FieldProps {
 
 export function Field({ label, children }: FieldProps) {
   return (
-    <div className="grid gap-1.5">
-      <label className="text-sm font-medium">{label}</label>
+    <div className="grid gap-1">
+      <label className="text-xs font-medium text-foreground/85">{label}</label>
       {children}
     </div>
   );

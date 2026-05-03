@@ -11,8 +11,8 @@ interface TopbarProps {
 export function Topbar({ activeTab, onTabChange, onRefresh }: TopbarProps) {
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface/80 backdrop-blur-lg">
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
-        <div className="flex items-center gap-6">
+      <div className="mx-auto flex max-w-[1680px] items-center justify-between px-4 py-2.5 lg:px-5">
+        <div className="flex items-center gap-4 lg:gap-5">
           <span className="text-lg font-bold tracking-tight text-foreground">
             Interview AI
           </span>
@@ -31,8 +31,8 @@ export function Topbar({ activeTab, onTabChange, onRefresh }: TopbarProps) {
                         className={cn(
                           "flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                           activeTab === item.key
-                            ? "bg-primary-soft text-primary hover:text-primary-hover"
-                            : "text-muted hover:bg-slate-50 hover:text-foreground",
+                            ? "bg-zinc-100 text-zinc-900 shadow-sm ring-1 ring-zinc-200/80 hover:text-zinc-950"
+                            : "text-muted-foreground hover:bg-slate-50 hover:text-foreground",
                         )}
                       >
                         <Icon size={15} />
@@ -47,7 +47,7 @@ export function Topbar({ activeTab, onTabChange, onRefresh }: TopbarProps) {
         <button
           type="button"
           onClick={onRefresh}
-          className="rounded-lg p-2 text-muted transition-colors hover:bg-slate-50 hover:text-foreground"
+          className="rounded-lg p-2 text-muted-foreground transition-colors hover:bg-slate-50 hover:text-foreground"
         >
           <RefreshCcw size={16} />
         </button>

@@ -22,7 +22,7 @@ export function WeaknessList({ reviewCards }: WeaknessListProps) {
   }, [reviewCards]);
 
   if (weaknesses.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无薄弱主题数据</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无薄弱主题数据</div>;
   }
 
   const maxCount = weaknesses[0][1].count;
@@ -42,7 +42,7 @@ export function WeaknessList({ reviewCards }: WeaknessListProps) {
             />
           </div>
           {data.weaknesses.length > 0 && (
-            <p className="mt-2 text-xs text-muted line-clamp-2">
+            <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
               {data.weaknesses[0]}
             </p>
           )}

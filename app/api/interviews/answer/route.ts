@@ -89,6 +89,7 @@ export async function POST(request: Request) {
         }
       : null,
     resume: session.resumeProfile ? safeJsonParse(session.resumeProfile.parsedJson, null) : null,
+    candidatePrep: session.resumeProfile ? safeJsonParse(session.resumeProfile.candidatePrepJson, null) : null,
     knowledgeCards: knowledgeCards.map((card) => ({
       id: card.id,
       question: card.question,

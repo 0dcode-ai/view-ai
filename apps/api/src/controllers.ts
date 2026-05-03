@@ -1,16 +1,28 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query } from "@nestjs/common";
 import {
   answerInterviewSchema,
+  answerInterviewBySessionSchema,
+  agentRunSchema,
+  createApplicationSchema,
+  createAgentRunLogSchema,
   createExperienceSchema,
   createKnowledgeSchema,
+  createSourceDocumentSchema,
   generateSprintSchema,
+  finishInterviewSchema,
   parseExperienceSchema,
   parseJobTargetSchema,
   parseResumeSchema,
   startInterviewSchema,
   startLabSchema,
+  submitLabBySessionSchema,
   submitLabSchema,
+  updateAgentConfigSchema,
+  updateApplicationSchema,
+  updateKnowledgeSchema,
   updateKnowledgeProgressSchema,
+  updateReviewSchema,
+  updateResumeSchema,
 } from "@interview/shared";
 import { CurrentUser } from "./auth/current-user.decorator";
 import type { AuthUser } from "./auth/auth-user";
@@ -20,7 +32,7 @@ import { parseBody } from "./utils/zod";
 
 @Controller("health")
 class HealthController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Public()
   @Get()
@@ -31,7 +43,7 @@ class HealthController {
 
 @Controller("daily")
 class DailyController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   daily(@CurrentUser() user: AuthUser) {
@@ -41,7 +53,7 @@ class DailyController {
 
 @Controller("knowledge")
 class KnowledgeController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
@@ -57,11 +69,21 @@ class KnowledgeController {
   progress(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
     return this.core.updateKnowledgeProgress(user, Number(id), parseBody(updateKnowledgeProgressSchema, body));
   }
+
+  @Patch(":id")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.updateKnowledge(user, Number(id), parseBody(updateKnowledgeSchema, body));
+  }
+
+  @Delete(":id")
+  delete(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.deleteKnowledge(user, Number(id));
+  }
 }
 
 @Controller("question-templates")
 class QuestionTemplatesController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@Query() query: Record<string, string | undefined>) {
@@ -81,7 +103,7 @@ class QuestionTemplatesController {
 
 @Controller("resumes")
 class ResumesController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -92,11 +114,21 @@ class ResumesController {
   parse(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.core.parseResume(user, parseBody(parseResumeSchema, body));
   }
+
+  @Patch(":id")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.updateResume(user, Number(id), parseBody(updateResumeSchema, body));
+  }
+
+  @Delete(":id")
+  delete(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.deleteResume(user, Number(id));
+  }
 }
 
 @Controller("job-targets")
 class JobTargetsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -109,9 +141,44 @@ class JobTargetsController {
   }
 }
 
+@Controller("applications")
+class ApplicationsController {
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
+
+  @Get()
+  list(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
+    return this.core.listApplications(user, query);
+  }
+
+  @Post()
+  create(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.createApplication(user, parseBody(createApplicationSchema, body));
+  }
+
+  @Patch(":id")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.updateApplication(user, Number(id), parseBody(updateApplicationSchema, body));
+  }
+}
+
+@Controller("sources")
+class SourcesController {
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
+
+  @Get()
+  list(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
+    return this.core.listSources(user, query);
+  }
+
+  @Post()
+  create(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.createSource(user, parseBody(createSourceDocumentSchema, body));
+  }
+}
+
 @Controller("interviews")
 class InterviewsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -128,9 +195,19 @@ class InterviewsController {
     return this.core.answerInterview(user, Number(id), parseBody(answerInterviewSchema, body));
   }
 
+  @Post("answer")
+  answerBySession(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.answerInterviewBySession(user, parseBody(answerInterviewBySessionSchema, body));
+  }
+
   @Post(":id/finish")
   finish(@CurrentUser() user: AuthUser, @Param("id") id: string) {
     return this.core.finishInterview(user, Number(id));
+  }
+
+  @Post("finish")
+  finishBySession(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.finishInterviewBySession(user, parseBody(finishInterviewSchema, body));
   }
 
   @Post("transcribe")
@@ -141,17 +218,22 @@ class InterviewsController {
 
 @Controller("reviews")
 class ReviewsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
     return this.core.listReviews(user, query);
   }
+
+  @Patch(":id")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.updateReview(user, Number(id), parseBody(updateReviewSchema, body));
+  }
 }
 
 @Controller("sprints")
 class SprintsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -166,7 +248,7 @@ class SprintsController {
 
 @Controller("sprint-tasks")
 class SprintTasksController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Patch(":id")
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: { status?: "todo" | "doing" | "done" }) {
@@ -176,7 +258,7 @@ class SprintTasksController {
 
 @Controller("labs")
 class LabsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser) {
@@ -192,11 +274,17 @@ class LabsController {
   submit(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
     return this.core.submitLab(user, Number(id), parseBody(submitLabSchema, body));
   }
+
+  @Post("submit")
+  submitBySession(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    const input = parseBody(submitLabBySessionSchema, body);
+    return this.core.submitLab(user, input.sessionId, { content: input.content });
+  }
 }
 
 @Controller("experiences")
 class ExperiencesController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
@@ -231,7 +319,7 @@ class ExperiencesController {
 
 @Controller("companies")
 class CompaniesController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get(":id/intel")
   intel(@CurrentUser() user: AuthUser, @Param("id") id: string) {
@@ -246,11 +334,41 @@ class CompaniesController {
 
 @Controller("learning-paths")
 class LearningPathsController {
-  constructor(private readonly core: CoreService) {}
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
 
   @Get()
   list(@Query("role") role?: string) {
     return this.core.learningPath(role);
+  }
+}
+
+@Controller("agents")
+class AgentsController {
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
+
+  @Get()
+  configs(@CurrentUser() user: AuthUser) {
+    return this.core.listAgentConfigs(user);
+  }
+
+  @Patch(":agentName")
+  updateConfig(@CurrentUser() user: AuthUser, @Param("agentName") agentName: string, @Body() body: unknown) {
+    return this.core.updateAgentConfig(user, agentName, parseBody(updateAgentConfigSchema, body));
+  }
+
+  @Get("runs")
+  runs(@CurrentUser() user: AuthUser, @Query() query: Record<string, string | undefined>) {
+    return this.core.listAgentRunLogs(user, query);
+  }
+
+  @Post("runs")
+  createRun(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.createAgentRunLog(user, parseBody(createAgentRunLogSchema, body));
+  }
+
+  @Post(":agentName/run")
+  run(@CurrentUser() user: AuthUser, @Param("agentName") agentName: string, @Body() body: unknown) {
+    return this.core.runAgent(user, agentName, parseBody(agentRunSchema, body));
   }
 }
 
@@ -261,6 +379,8 @@ export const ApiControllers = [
   QuestionTemplatesController,
   ResumesController,
   JobTargetsController,
+  ApplicationsController,
+  SourcesController,
   InterviewsController,
   ReviewsController,
   SprintsController,
@@ -269,4 +389,5 @@ export const ApiControllers = [
   ExperiencesController,
   CompaniesController,
   LearningPathsController,
+  AgentsController,
 ];

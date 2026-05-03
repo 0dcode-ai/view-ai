@@ -1,5 +1,5 @@
 import type { Prisma } from "@prisma/client";
-import type { ResumeParseResult } from "@/lib/ai";
+import type { CandidatePrepResult, ResumeParseResult } from "@/lib/ai";
 import { safeJsonParse, tagsFromJson } from "@/lib/tags";
 
 type KnowledgeCardWithRelations = Prisma.KnowledgeCardGetPayload<{
@@ -108,6 +108,7 @@ export function serializeResumeProfile(resume: ResumeProfileRecord) {
       followUpQuestions: [],
     }),
     followUpQuestions: safeJsonParse<string[]>(resume.followUpQuestionsJson, []),
+    candidatePrep: safeJsonParse<CandidatePrepResult | null>(resume.candidatePrepJson, null),
     createdAt: resume.createdAt.toISOString(),
     updatedAt: resume.updatedAt.toISOString(),
   };

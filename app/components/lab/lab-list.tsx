@@ -26,7 +26,7 @@ interface LabListProps {
 
 export function LabList({ sessions, activeId, onSelect }: LabListProps) {
   if (sessions.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无练习记录</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无练习记录</div>;
   }
   return (
     <div className="grid gap-3">
@@ -34,19 +34,19 @@ export function LabList({ sessions, activeId, onSelect }: LabListProps) {
         <article
           key={session.id}
           className={cn(
-            "flex items-center gap-3 rounded-xl border p-4 shadow-sm transition-colors cursor-pointer",
+            "flex items-center gap-3 rounded-xl border p-3.5 shadow-sm transition-colors cursor-pointer",
             session.id === activeId
               ? "border-primary bg-primary-soft"
               : "border-border bg-surface hover:bg-slate-50",
           )}
           onClick={() => onSelect(session.id)}
         >
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-muted">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-muted-foreground">
             {labIcon(session.type)}
           </div>
           <div className="min-w-0 flex-1">
             <h5 className="text-sm font-semibold">{session.title}</h5>
-            <p className="text-xs text-muted">
+            <p className="text-xs text-muted-foreground">
               {typeLabels[session.type]} · {formatDate(session.updatedAt)}
             </p>
           </div>

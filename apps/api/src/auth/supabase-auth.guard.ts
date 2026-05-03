@@ -7,6 +7,7 @@ import type { AuthUser } from "./auth-user";
 @Injectable()
 export class SupabaseAuthGuard implements CanActivate {
   constructor(
+    @Inject(Reflector)
     private readonly reflector: Reflector,
     @Inject("SUPABASE_CLIENT") private readonly supabase: SupabaseClient | null,
   ) {}

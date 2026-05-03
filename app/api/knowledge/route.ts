@@ -4,7 +4,7 @@ import { suggestKnowledge } from "@/lib/ai";
 import { buildKnowledgeWhere, findOrCreateCompany, findOrCreateTopic } from "@/lib/db-helpers";
 import { prisma } from "@/lib/db";
 import { serializeKnowledgeCard } from "@/lib/serializers";
-import { normalizeTags, tagsToJson } from "@/lib/tags";
+import { normalizeTags, tagsFromJson, tagsToJson } from "@/lib/tags";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +50,17 @@ export async function GET(request: Request) {
     prisma.topic.findMany({ orderBy: { name: "asc" } }),
   ]);
 
+  const tags = Array.from(
+    new Set(
+      cards.flatMap((card) => tagsFromJson(card.tagsJson)),
+    ),
+  ).sort((left, right) => left.localeCompare(right, "zh-Hans-CN"));
+
   return NextResponse.json({
     cards: cards.map(serializeKnowledgeCard),
     companies: companies.map((company) => ({ id: company.id, name: company.name })),
     topics: topics.map((topic) => ({ id: topic.id, name: topic.name })),
+    tags,
   });
 }
 

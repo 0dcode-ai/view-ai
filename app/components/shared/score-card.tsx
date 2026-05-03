@@ -5,9 +5,9 @@ interface ScoreCardProps {
 
 export function ScoreCard({ label, value }: ScoreCardProps) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 text-center shadow-sm">
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="mt-0.5 text-sm text-muted">{label}</div>
+    <div className="rounded-xl border border-border bg-surface p-3.5 text-center shadow-sm">
+      <div className="text-[1.65rem] font-bold leading-none">{value}</div>
+      <div className="mt-1 text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }

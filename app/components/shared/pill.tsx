@@ -9,10 +9,10 @@ interface PillProps {
 }
 
 const variantCls: Record<PillVariant, string> = {
-  default: "bg-slate-100 text-slate-700",
+  default: "bg-stone-100 text-stone-700",
   warn: "bg-amber-50 text-amber-700",
-  brand: "bg-primary-soft text-primary",
-  accent: "bg-accent-soft text-accent",
+  brand: "bg-zinc-900 text-white",
+  accent: "bg-zinc-100 text-zinc-700",
 };
 
 export function Pill({ children, variant = "default" }: PillProps) {

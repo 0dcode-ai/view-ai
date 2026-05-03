@@ -21,12 +21,12 @@ interface ExperienceListProps {
 
 export function ExperienceList({ experiences, onGenerateCards, onStartInterview, onCreateTasks }: ExperienceListProps) {
   if (experiences.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无面经</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无面经</div>;
   }
   return (
     <div className="grid gap-3">
       {experiences.map((exp) => (
-        <article key={exp.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+        <article key={exp.id} className="rounded-xl border border-border bg-surface p-3.5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <h5 className="text-sm font-semibold">
               {exp.company?.name ?? "未知公司"} / {exp.roleName}
@@ -45,7 +45,7 @@ export function ExperienceList({ experiences, onGenerateCards, onStartInterview,
             {exp.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
           </div>
           <div className="mt-3 flex items-center justify-between">
-            <span className="text-xs text-muted">{formatDate(exp.updatedAt)}</span>
+            <span className="text-xs text-muted-foreground">{formatDate(exp.updatedAt)}</span>
             <div className="flex gap-2">
               <button className={btnGhost} type="button" onClick={() => onGenerateCards(exp.id)}>
                 <BookOpen size={14} /> 生成八股卡

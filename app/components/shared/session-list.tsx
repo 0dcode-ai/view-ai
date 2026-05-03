@@ -9,12 +9,12 @@ interface SessionListProps {
 
 export function SessionList({ sessions }: SessionListProps) {
   if (sessions.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无面试记录</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无面试记录</div>;
   }
   return (
     <div className="grid gap-3">
       {sessions.map((session) => (
-        <article key={session.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+        <article key={session.id} className="rounded-xl border border-border bg-surface p-3.5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <h5 className="text-sm font-semibold">
               {interviewModeLabels[session.mode]} / {roundTypeLabels[session.roundType]}
@@ -23,7 +23,7 @@ export function SessionList({ sessions }: SessionListProps) {
               {session.status === "finished" ? "已完成" : session.status}
             </Pill>
           </div>
-          <div className="mt-1 text-sm text-muted">
+          <div className="mt-1 text-sm text-muted-foreground">
             {session.company?.name ?? "未命名公司"}
             {session.targetRole ? ` / ${session.targetRole}` : ""}
           </div>
@@ -32,7 +32,7 @@ export function SessionList({ sessions }: SessionListProps) {
             <Pill>八股 {scoreOrDash(session.score.knowledge)}</Pill>
             <Pill>表达 {scoreOrDash(session.score.expression)}</Pill>
           </div>
-          <div className="mt-2 text-xs text-muted">{formatDate(session.updatedAt)}</div>
+          <div className="mt-2 text-xs text-muted-foreground">{formatDate(session.updatedAt)}</div>
         </article>
       ))}
     </div>

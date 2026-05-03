@@ -24,7 +24,8 @@
       "Read",
       "Edit",
       "Write",
-      "Bash(lsof -i :3000 -sTCP:LISTEN)"
+      "Bash(lsof -i :3000 -sTCP:LISTEN)",
+      "Bash(xxd)"
     ]
   }
 }

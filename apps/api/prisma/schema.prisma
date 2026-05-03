@@ -14,6 +14,7 @@ model UserProfile {
   displayName       String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  applications      Application[]
   knowledgeCards    KnowledgeCard[]
   resumeProfiles    ResumeProfile[]
   jobTargets        JobTarget[]
@@ -22,6 +23,9 @@ model UserProfile {
   sprintPlans       SprintPlan[]
   labSessions       LabSession[]
   experienceReports ExperienceReport[]
+  sourceDocuments   SourceDocument[]
+  agentConfigs      AgentConfig[]
+  agentRunLogs      AgentRunLog[]
 }
 
 model Company {
@@ -31,6 +35,7 @@ model Company {
   note              String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  applications      Application[]
   interviewSessions InterviewSession[]
   experienceReports ExperienceReport[]
   jobTargets        JobTarget[]
@@ -126,8 +131,11 @@ model ResumeProfile {
   rawText               String
   parsedJson            String             @default("{}")
   followUpQuestionsJson String             @default("[]")
+  candidatePrepJson     String             @default("null")
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
+  applications          Application[]
+  resumeVersions        ResumeVersion[]
   interviewSessions     InterviewSession[]
   jobTargets            JobTarget[]
   sprintPlans           SprintPlan[]
@@ -148,6 +156,7 @@ model JobTarget {
   matchJson         String             @default("{}")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
+  applications      Application[]
   company           Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
   resumeProfile     ResumeProfile?     @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
   interviewSessions InterviewSession[]
@@ -159,6 +168,100 @@ model JobTarget {
   @@index([resumeProfileId])
 }
 
+model Application {
+  id              Int                @id @default(autoincrement())
+  userId          String
+  companyId       Int?
+  resumeProfileId Int?
+  jobTargetId     Int?
+  title           String
+  roleName        String
+  level           String             @default("mid")
+  salaryK         Int?
+  salaryMinK      Int?
+  salaryMaxK      Int?
+  status          String             @default("tracking")
+  stage           String             @default("saved")
+  jobUrl          String?
+  location        String?
+  source          String?
+  priority        Int                @default(50)
+  archived        Boolean            @default(false)
+  appliedAt       DateTime?
+  followUpAt      DateTime?
+  deadlineAt      DateTime?
+  contactName     String?
+  contactEmail    String?
+  jdSnapshot      String?
+  matchReportJson String             @default("{}")
+  interviewDate   DateTime?
+  progressJson    String             @default("{}")
+  nextAction      String?
+  note            String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  company         Company?           @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  resumeProfile   ResumeProfile?     @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
+  jobTarget       JobTarget?         @relation(fields: [jobTargetId], references: [id], onDelete: SetNull)
+  interviewSessions InterviewSession[]
+  reviewCards     ReviewCard[]
+  sprintPlans     SprintPlan[]
+  sourceDocuments SourceDocument[]
+  activities      ApplicationActivity[]
+  resumeVersions  ResumeVersion[]
+  user            UserProfile        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([companyId])
+  @@index([resumeProfileId])
+  @@index([jobTargetId])
+  @@index([status])
+  @@index([stage])
+  @@index([archived])
+  @@index([priority])
+  @@index([followUpAt])
+  @@index([interviewDate])
+}
+
+model ApplicationActivity {
+  id            Int         @id @default(autoincrement())
+  userId        String
+  applicationId Int
+  type          String
+  title         String
+  detail        String?
+  metadataJson  String      @default("{}")
+  createdAt     DateTime    @default(now())
+  application   Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model ResumeVersion {
+  id              Int            @id @default(autoincrement())
+  userId          String
+  applicationId   Int
+  resumeProfileId Int?
+  title           String
+  content         String
+  blocksJson      String         @default("[]")
+  matchReportJson String         @default("{}")
+  suggestionJson  String         @default("{}")
+  isPrimary       Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  application     Application    @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  resumeProfile   ResumeProfile? @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([resumeProfileId])
+  @@index([isPrimary])
+}
+
 model InterviewSession {
   id              Int             @id @default(autoincrement())
   legacyId        Int?
@@ -168,6 +271,7 @@ model InterviewSession {
   deliveryMode    String          @default("text")
   targetRole      String?
   targetCompanyId Int?
+  applicationId   Int?
   resumeProfileId Int?
   jobTargetId     Int?
   status          String          @default("active")
@@ -176,6 +280,7 @@ model InterviewSession {
   expressionJson  String          @default("{}")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  application     Application?    @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   company         Company?        @relation(fields: [targetCompanyId], references: [id], onDelete: SetNull)
   jobTarget       JobTarget?      @relation(fields: [jobTargetId], references: [id], onDelete: SetNull)
   resumeProfile   ResumeProfile?  @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
@@ -187,6 +292,7 @@ model InterviewSession {
   @@index([mode])
   @@index([roundType])
   @@index([status])
+  @@index([applicationId])
   @@index([jobTargetId])
 }
 
@@ -217,6 +323,7 @@ model ReviewCard {
   id              Int               @id @default(autoincrement())
   legacyId        Int?
   userId          String
+  applicationId   Int?
   sessionId       Int?
   knowledgeCardId Int?
   title           String
@@ -228,11 +335,13 @@ model ReviewCard {
   tagsJson        String            @default("[]")
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
+  application     Application?      @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   knowledgeCard   KnowledgeCard?    @relation(fields: [knowledgeCardId], references: [id], onDelete: SetNull)
   session         InterviewSession? @relation(fields: [sessionId], references: [id], onDelete: Cascade)
   user            UserProfile       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([applicationId])
   @@index([status])
   @@index([sessionId])
   @@index([priority])
@@ -242,6 +351,7 @@ model SprintPlan {
   id              Int           @id @default(autoincrement())
   legacyId        Int?
   userId          String
+  applicationId   Int?
   companyId       Int?
   jobTargetId     Int?
   resumeProfileId Int?
@@ -253,6 +363,7 @@ model SprintPlan {
   summary         String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  application     Application?  @relation(fields: [applicationId], references: [id], onDelete: SetNull)
   company         Company?      @relation(fields: [companyId], references: [id], onDelete: SetNull)
   jobTarget       JobTarget?    @relation(fields: [jobTargetId], references: [id], onDelete: SetNull)
   resumeProfile   ResumeProfile? @relation(fields: [resumeProfileId], references: [id], onDelete: SetNull)
@@ -260,9 +371,44 @@ model SprintPlan {
   user            UserProfile   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([applicationId])
   @@index([companyId])
   @@index([jobTargetId])
   @@index([status])
+}
+
+model SourceDocument {
+  id            Int           @id @default(autoincrement())
+  userId        String
+  applicationId Int?
+  title         String
+  sourceType    String        @default("note")
+  content       String
+  metadataJson  String        @default("{}")
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  application   Application?  @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  chunks        SourceChunk[]
+  user          UserProfile   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([applicationId])
+  @@index([sourceType])
+  @@index([updatedAt])
+}
+
+model SourceChunk {
+  id          Int            @id @default(autoincrement())
+  documentId  Int
+  chunkIndex  Int
+  content     String
+  tokenCount  Int           @default(0)
+  metadataJson String       @default("{}")
+  createdAt   DateTime      @default(now())
+  document    SourceDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, chunkIndex])
+  @@index([documentId])
 }
 
 model SprintTask {
@@ -351,4 +497,45 @@ model ExperienceRound {
   report           ExperienceReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
 
   @@index([reportId])
+}
+
+model AgentConfig {
+  id          Int         @id @default(autoincrement())
+  userId      String
+  agentName   String
+  displayName String?
+  enabled     Boolean     @default(true)
+  model       String?
+  configJson  String      @default("{}")
+  promptJson  String      @default("{}")
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  user        UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, agentName])
+  @@index([userId])
+  @@index([agentName])
+}
+
+model AgentRunLog {
+  id             Int         @id @default(autoincrement())
+  userId         String
+  agentName      String
+  status         String      @default("success")
+  model          String?
+  usedFallback   Boolean     @default(false)
+  latencyMs      Int?
+  resourceType   String?
+  resourceId     String?
+  inputJson      String      @default("{}")
+  outputJson     String      @default("{}")
+  errorJson      String      @default("{}")
+  tokenUsageJson String      @default("{}")
+  createdAt      DateTime    @default(now())
+  user           UserProfile @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([agentName])
+  @@index([status])
+  @@index([createdAt])
 }

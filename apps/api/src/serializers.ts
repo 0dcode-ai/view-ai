@@ -19,6 +19,7 @@ type ResumeProfileRecord = Prisma.ResumeProfileGetPayload<Record<string, never>>
 type InterviewTurnRecord = Prisma.InterviewTurnGetPayload<Record<string, never>>;
 type InterviewSessionWithRelations = Prisma.InterviewSessionGetPayload<{
   include: {
+    application: true;
     company: true;
     jobTarget: {
       include: {
@@ -67,6 +68,39 @@ type ExperienceReportWithRelations = Prisma.ExperienceReportGetPayload<{
   include: {
     company: true;
     rounds: true;
+  };
+}>;
+type AgentConfigRecord = Prisma.AgentConfigGetPayload<Record<string, never>>;
+type AgentRunLogRecord = Prisma.AgentRunLogGetPayload<Record<string, never>>;
+type ApplicationWithRelations = Prisma.ApplicationGetPayload<{
+  include: {
+    company: true;
+    resumeProfile: true;
+    jobTarget: {
+      include: {
+        company: true;
+        resumeProfile: true;
+      };
+    };
+    interviewSessions: true;
+    reviewCards: true;
+    sprintPlans: {
+      include: {
+        tasks: true;
+      };
+    };
+    sourceDocuments: true;
+    activities: true;
+    resumeVersions: true;
+  };
+}>;
+type ApplicationActivityRecord = Prisma.ApplicationActivityGetPayload<Record<string, never>>;
+type ResumeVersionRecord = Prisma.ResumeVersionGetPayload<Record<string, never>>;
+type SourceChunkRecord = Prisma.SourceChunkGetPayload<Record<string, never>>;
+type SourceDocumentWithRelations = Prisma.SourceDocumentGetPayload<{
+  include: {
+    application: true;
+    chunks: true;
   };
 }>;
 
@@ -129,6 +163,7 @@ export function serializeResumeProfile(resume: ResumeProfileRecord) {
       followUpQuestions: [],
     }),
     followUpQuestions: safeJsonParse<string[]>(resume.followUpQuestionsJson, []),
+    candidatePrep: safeJsonParse<unknown | null>(resume.candidatePrepJson, null),
     createdAt: resume.createdAt.toISOString(),
     updatedAt: resume.updatedAt.toISOString(),
   };
@@ -192,6 +227,13 @@ export function serializeInterviewSession(session: InterviewSessionWithRelations
     expression: safeJsonParse<Record<string, unknown>>(session.expressionJson, {}),
     createdAt: session.createdAt.toISOString(),
     updatedAt: session.updatedAt.toISOString(),
+    application: session.application
+      ? {
+          id: session.application.id,
+          title: session.application.title,
+          roleName: session.application.roleName,
+        }
+      : null,
     company: session.company ? { id: session.company.id, name: session.company.name } : null,
     jobTarget: session.jobTarget ? serializeJobTarget(session.jobTarget) : null,
     resumeProfile: session.resumeProfile ? serializeResumeProfile(session.resumeProfile) : null,
@@ -305,5 +347,183 @@ export function serializeExperienceReport(report: ExperienceReportWithRelations)
     updatedAt: report.updatedAt.toISOString(),
     company: report.company ? { id: report.company.id, name: report.company.name } : null,
     rounds: report.rounds.sort((a, b) => a.order - b.order).map(serializeExperienceRound),
+  };
+}
+
+export function serializeAgentConfig(config: AgentConfigRecord) {
+  return {
+    id: config.id,
+    agentName: config.agentName,
+    displayName: config.displayName,
+    enabled: config.enabled,
+    model: config.model,
+    config: safeJsonParse<Record<string, unknown>>(config.configJson, {}),
+    prompt: safeJsonParse<Record<string, unknown>>(config.promptJson, {}),
+    createdAt: config.createdAt.toISOString(),
+    updatedAt: config.updatedAt.toISOString(),
+  };
+}
+
+export function serializeAgentRunLog(log: AgentRunLogRecord) {
+  return {
+    id: log.id,
+    agentName: log.agentName,
+    status: log.status,
+    model: log.model,
+    usedFallback: log.usedFallback,
+    latencyMs: log.latencyMs,
+    resourceType: log.resourceType,
+    resourceId: log.resourceId,
+    input: safeJsonParse<Record<string, unknown>>(log.inputJson, {}),
+    output: safeJsonParse<Record<string, unknown>>(log.outputJson, {}),
+    error: safeJsonParse<Record<string, unknown>>(log.errorJson, {}),
+    tokenUsage: safeJsonParse<Record<string, unknown>>(log.tokenUsageJson, {}),
+    createdAt: log.createdAt.toISOString(),
+  };
+}
+
+export function serializeApplication(application: ApplicationWithRelations) {
+  const matchReport = safeJsonParse<unknown | null>(application.matchReportJson, null);
+  return {
+    id: application.id,
+    title: application.title,
+    roleName: application.roleName,
+    level: application.level,
+    salaryK: application.salaryK,
+    salaryMinK: application.salaryMinK,
+    salaryMaxK: application.salaryMaxK,
+    status: application.status,
+    stage: application.stage,
+    jobUrl: application.jobUrl,
+    location: application.location,
+    source: application.source,
+    priority: application.priority,
+    archived: application.archived,
+    appliedAt: application.appliedAt?.toISOString() ?? null,
+    followUpAt: application.followUpAt?.toISOString() ?? null,
+    deadlineAt: application.deadlineAt?.toISOString() ?? null,
+    contactName: application.contactName,
+    contactEmail: application.contactEmail,
+    jdSnapshot: application.jdSnapshot,
+    matchReport: matchReport && typeof matchReport === "object" && Object.keys(matchReport as Record<string, unknown>).length ? matchReport : null,
+    interviewDate: application.interviewDate?.toISOString() ?? null,
+    progress: buildApplicationProgress(application),
+    nextAction: application.nextAction,
+    note: application.note,
+    createdAt: application.createdAt.toISOString(),
+    updatedAt: application.updatedAt.toISOString(),
+    company: application.company ? { id: application.company.id, name: application.company.name } : null,
+    resumeProfile: application.resumeProfile ? serializeResumeProfile(application.resumeProfile) : null,
+    jobTarget: application.jobTarget ? serializeJobTarget(application.jobTarget) : null,
+    activities: application.activities
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 20)
+      .map(serializeApplicationActivity),
+    resumeVersions: application.resumeVersions
+      .sort((a, b) => Number(b.isPrimary) - Number(a.isPrimary) || b.updatedAt.getTime() - a.updatedAt.getTime())
+      .map(serializeResumeVersion),
+  };
+}
+
+export function serializeApplicationActivity(activity: ApplicationActivityRecord) {
+  return {
+    id: activity.id,
+    applicationId: activity.applicationId,
+    type: activity.type,
+    title: activity.title,
+    detail: activity.detail,
+    metadata: safeJsonParse<Record<string, unknown>>(activity.metadataJson, {}),
+    createdAt: activity.createdAt.toISOString(),
+  };
+}
+
+export function serializeResumeVersion(version: ResumeVersionRecord) {
+  const matchReport = safeJsonParse<unknown | null>(version.matchReportJson, null);
+  return {
+    id: version.id,
+    applicationId: version.applicationId,
+    resumeProfileId: version.resumeProfileId,
+    title: version.title,
+    content: version.content,
+    blocks: safeJsonParse<unknown[]>(version.blocksJson, []),
+    matchReport: matchReport && typeof matchReport === "object" && Object.keys(matchReport as Record<string, unknown>).length ? matchReport : null,
+    suggestions: safeJsonParse<Record<string, unknown>>(version.suggestionJson, {}),
+    isPrimary: version.isPrimary,
+    createdAt: version.createdAt.toISOString(),
+    updatedAt: version.updatedAt.toISOString(),
+  };
+}
+
+export function serializeSourceChunk(chunk: SourceChunkRecord) {
+  return {
+    id: chunk.id,
+    chunkIndex: chunk.chunkIndex,
+    content: chunk.content,
+    tokenCount: chunk.tokenCount,
+    metadata: safeJsonParse<Record<string, unknown>>(chunk.metadataJson, {}),
+    createdAt: chunk.createdAt.toISOString(),
+  };
+}
+
+export function serializeSourceDocument(document: SourceDocumentWithRelations) {
+  return {
+    id: document.id,
+    title: document.title,
+    sourceType: document.sourceType,
+    content: document.content,
+    metadata: safeJsonParse<Record<string, unknown>>(document.metadataJson, {}),
+    application: document.application
+      ? {
+          id: document.application.id,
+          title: document.application.title,
+          roleName: document.application.roleName,
+        }
+      : null,
+    chunks: document.chunks.sort((a, b) => a.chunkIndex - b.chunkIndex).map(serializeSourceChunk),
+    createdAt: document.createdAt.toISOString(),
+    updatedAt: document.updatedAt.toISOString(),
+  };
+}
+
+function buildApplicationProgress(application: ApplicationWithRelations) {
+  const savedProgress = safeJsonParse<Partial<{
+    resumeReady: number;
+    jdReady: number;
+    mockReady: number;
+    reviewReady: number;
+    sourceReady: number;
+    overall: number;
+    nextActions: string[];
+  }>>(application.progressJson, {});
+  const finishedSessions = application.interviewSessions.filter((session) => session.status === "finished").length;
+  const todoReviews = application.reviewCards.filter((card) => card.status !== "done").length;
+  const totalTasks = application.sprintPlans.flatMap((plan) => plan.tasks ?? []).length;
+  const doneTasks = application.sprintPlans.flatMap((plan) => plan.tasks ?? []).filter((task) => task.status === "done").length;
+  const resumeReady = savedProgress.resumeReady ?? (application.resumeProfileId ? 100 : 0);
+  const jdReady = savedProgress.jdReady ?? (application.jobTargetId ? 100 : 0);
+  const mockReady = savedProgress.mockReady ?? Math.min(100, finishedSessions * 30);
+  const reviewReady = savedProgress.reviewReady ?? (application.reviewCards.length ? Math.round(((application.reviewCards.length - todoReviews) / application.reviewCards.length) * 100) : 0);
+  const sourceReady = savedProgress.sourceReady ?? Math.min(100, application.sourceDocuments.length * 25 + (totalTasks ? Math.round((doneTasks / totalTasks) * 20) : 0));
+  const matchScore = safeJsonParse<{ matchScore?: number }>(application.matchReportJson, {}).matchScore ?? 0;
+  const matchReady = matchScore ? Math.min(100, matchScore) : 0;
+  const overall = savedProgress.overall ?? Math.round(resumeReady * 0.18 + jdReady * 0.2 + matchReady * 0.2 + mockReady * 0.22 + reviewReady * 0.1 + sourceReady * 0.1);
+  const nextActions =
+    savedProgress.nextActions ??
+    [
+      application.resumeProfileId ? "" : "先关联一份简历。",
+      application.jobTargetId ? "" : "补充或解析目标 JD。",
+      matchScore ? "" : "生成一次 JD/简历匹配报告。",
+      finishedSessions ? "" : "完成一次候选人视角模拟面试。",
+      todoReviews ? "清理本机会下的复盘卡。" : "",
+    ].filter(Boolean);
+
+  return {
+    resumeReady,
+    jdReady,
+    mockReady,
+    reviewReady,
+    sourceReady,
+    overall,
+    nextActions,
   };
 }

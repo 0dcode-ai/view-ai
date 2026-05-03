@@ -59,4 +59,8 @@ export class ApiClient {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   }
+
+  delete<T>(path: string) {
+    return this.request<T>(path, { method: "DELETE" });
+  }
 }

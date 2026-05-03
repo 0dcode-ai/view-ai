@@ -8,12 +8,12 @@ interface MetricCardProps {
 
 export function MetricCard({ label, value, icon }: MetricCardProps) {
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+    <div className="rounded-xl border border-border bg-surface p-3.5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-sm text-muted">{label}</span>
+        <span className="text-xs text-muted-foreground">{label}</span>
         {icon}
       </div>
-      <div className="mt-2 text-2xl font-bold">{value}</div>
+      <div className="mt-1.5 text-[1.65rem] font-bold leading-none">{value}</div>
     </div>
   );
 }

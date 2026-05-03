@@ -23,30 +23,38 @@ const nextStatus: Record<SprintTask["status"], SprintTask["status"]> = {
 interface SprintListProps {
   plans: SprintPlan[];
   onTaskStatus: (taskId: number, status: SprintTask["status"]) => void;
+  activePlanId?: number | null;
+  onSelect?: (planId: number) => void;
 }
 
-export function SprintList({ plans, onTaskStatus }: SprintListProps) {
+export function SprintList({ plans, onTaskStatus, activePlanId, onSelect }: SprintListProps) {
   if (plans.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无冲刺计划</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无冲刺计划</div>;
   }
   return (
     <div className="grid gap-4">
       {plans.map((plan) => {
         const doneCount = plan.tasks.filter((t) => t.status === "done").length;
         return (
-          <article key={plan.id} className="rounded-2xl border border-border bg-surface shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-              <div>
+          <article
+            key={plan.id}
+            className={cn(
+              "rounded-2xl border bg-surface shadow-sm transition-colors",
+              activePlanId === plan.id ? "border-primary ring-2 ring-primary/15" : "border-border",
+            )}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
+              <button className="min-w-0 text-left" type="button" onClick={() => onSelect?.(plan.id)}>
                 <h4 className="text-sm font-semibold">{plan.title}</h4>
-                <p className="mt-0.5 text-xs text-muted">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {plan.company?.name ?? "未命名公司"} · {plan.days} 天
                 </p>
-              </div>
+              </button>
               <Pill variant="brand">{doneCount}/{plan.tasks.length}</Pill>
             </div>
-            <div className="p-5 grid gap-2">
+            <div className="grid gap-2 p-4">
               {plan.tasks.map((task) => (
-                <div key={task.id} className="flex items-center gap-3 rounded-lg border border-border p-3">
+                <div key={task.id} className="flex items-center gap-3 rounded-lg border border-border p-2.5">
                   <button
                     type="button"
                     className={cn(
@@ -60,10 +68,10 @@ export function SprintList({ plans, onTaskStatus }: SprintListProps) {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium">{task.title}</p>
                     {task.description && (
-                      <p className="mt-0.5 text-xs text-muted">{task.description}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{task.description}</p>
                     )}
                   </div>
-                  <span className="text-xs text-muted">Day {task.dayIndex + 1}</span>
+                  <span className="text-xs text-muted-foreground">Day {task.dayIndex + 1}</span>
                 </div>
               ))}
             </div>

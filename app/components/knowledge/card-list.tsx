@@ -12,7 +12,7 @@ interface CardListProps {
 
 export function CardList({ cards, onProgress }: CardListProps) {
   if (cards.length === 0) {
-    return <div className="py-8 text-center text-sm text-muted">暂无学习卡</div>;
+    return <div className="py-8 text-center text-sm text-muted-foreground">暂无学习卡</div>;
   }
   return (
     <div className="mt-4 grid gap-3">

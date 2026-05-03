@@ -10,11 +10,11 @@ interface PanelProps {
 export function Panel({ title, icon, children, className }: PanelProps) {
   return (
     <section className={`rounded-2xl border border-border bg-surface shadow-sm ${className ?? ""}`}>
-      <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
         {icon}
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className="text-sm font-semibold">{title}</h3>
       </div>
-      <div className="p-5">{children}</div>
+      <div className="p-4">{children}</div>
     </section>
   );
 }

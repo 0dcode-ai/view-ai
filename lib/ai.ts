@@ -29,6 +29,21 @@ export type ResumeParseResult = {
   followUpQuestions: string[];
 };
 
+export type CandidatePrepResult = {
+  headline: string;
+  resumeHighlights: string[];
+  selfIntro90s: string;
+  projectTalkTracks: Array<{
+    project: string;
+    whyItMatters: string;
+    deepDivePoints: string[];
+    proofPoints: string[];
+  }>;
+  riskPoints: string[];
+  followUpQuestions: string[];
+  jobAlignment: string[];
+};
+
 export type JobTargetParseResult = {
   responsibilities: string[];
   requiredSkills: string[];
@@ -84,6 +99,36 @@ export type FinishReview = {
     tags: string[];
     priority: number;
   }>;
+};
+
+export type InterviewScriptResult = {
+  title: string;
+  overview: string;
+  interviewerBrief: string[];
+  questions: Array<{
+    order: number;
+    question: string;
+    intent: string;
+    followUps: string[];
+    strongSignals: string[];
+    redFlags: string[];
+  }>;
+  rubric: Array<{
+    dimension: string;
+    good: string;
+    average: string;
+    weak: string;
+  }>;
+  closing: string;
+  candidateTips: string[];
+};
+
+export type ArticleFormatResult = {
+  title: string;
+  topic: string;
+  tags: string[];
+  summary: string;
+  contentMarkdown: string;
 };
 
 export type SprintPlanResult = {
@@ -147,8 +192,12 @@ type InterviewContext = {
   roundType?: RoundType;
   targetCompany?: string | null;
   targetRole?: string | null;
+  seniority?: string | null;
+  salaryK?: number | null;
+  difficulty?: "easy" | "medium" | "hard" | null;
   jobTarget?: (JobTargetParseResult & { match?: ResumeJobMatch }) | null;
   resume?: ResumeParseResult | null;
+  candidatePrep?: CandidatePrepResult | null;
   knowledgeCards?: Array<{
     id: number;
     question: string;
@@ -178,6 +227,19 @@ type SprintContext = {
   match?: ResumeJobMatch | null;
   weakTags?: string[];
   knowledgeCards?: Array<{ question: string; abilityDimension?: string; mastery?: number; priorityScore?: number }>;
+};
+
+type InterviewScriptContext = {
+  resumeText: string;
+  direction: string;
+  roleName?: string | null;
+  difficulty: "easy" | "medium" | "hard";
+  questionCount: number;
+  focus?: string | null;
+  seniority?: string | null;
+  salaryK?: number | null;
+  difficultySource?: string | null;
+  candidatePrep?: CandidatePrepResult | null;
 };
 
 const systemPrompt =
@@ -507,6 +569,90 @@ export async function finishInterview(context: InterviewContext): Promise<Finish
   );
 }
 
+export async function generateInterviewScript(context: InterviewScriptContext): Promise<InterviewScriptResult> {
+  const fallback = mockInterviewScript(context);
+
+  return generateJson<InterviewScriptResult>(
+    [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task: "根据候选人简历和面试设置生成一份文字版面试官文稿。文稿要能直接照着问，也能切换给面试者练习。",
+          requirements: [
+            "问题必须贴合简历内容、面试方向和难度",
+            "每题包含考察意图、可追问、优秀信号和风险信号",
+            "问题数量严格接近 questionCount",
+            "不要输出 Markdown，只输出 JSON",
+          ],
+          schema: {
+            title: "文稿标题",
+            overview: "本场面试概览",
+            interviewerBrief: ["面试官开场和注意事项"],
+            questions: [
+              {
+                order: "序号，从 1 开始",
+                question: "主问题",
+                intent: "考察意图",
+                followUps: ["追问"],
+                strongSignals: ["好回答信号"],
+                redFlags: ["风险信号"],
+              },
+            ],
+            rubric: [
+              {
+                dimension: "评分维度",
+                good: "优秀表现",
+                average: "一般表现",
+                weak: "薄弱表现",
+              },
+            ],
+            closing: "收尾话术",
+            candidateTips: ["给面试者练习时的提示"],
+          },
+          context,
+        }),
+      },
+    ],
+    fallback,
+  );
+}
+
+export async function formatTechnicalArticle(input: {
+  rawText: string;
+  sourceUrl?: string | null;
+  topicHint?: string | null;
+}): Promise<ArticleFormatResult> {
+  const fallback = mockArticleFormat(input);
+
+  return generateJson<ArticleFormatResult>(
+    [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: JSON.stringify({
+          task: "把用户粘贴的一整段技术内容整理成适合长期保存的标准 Markdown 技术笔记。",
+          requirements: [
+            "输出标准 Markdown，不要 HTML。",
+            "保留原始技术事实，不要发明不存在的细节。",
+            "默认整理成易读的知识库格式：标题、摘要、核心内容、关键细节、实践建议。",
+            "如果原文已经有结构，优先顺着原结构整理。",
+          ],
+          schema: {
+            title: "文章标题",
+            topic: "主题，如 React / Redis / 系统设计",
+            tags: ["标签"],
+            summary: "80-120 字摘要",
+            contentMarkdown: "# 标题\\n\\n## 摘要\\n...",
+          },
+          input,
+        }),
+      },
+    ],
+    fallback,
+  );
+}
+
 export async function generateSprintPlan(context: SprintContext): Promise<SprintPlanResult> {
   const fallback = mockSprintPlan(context);
 
@@ -745,10 +891,22 @@ function normalizeExperienceQuestions(lines: string[]) {
 function mockQuestion(context: InterviewContext): QuestionResult {
   const asked = new Set(context.turns?.map((turn) => turn.question));
   const mode = context.mode;
+  const difficulty = context.difficulty ?? "medium";
+  const seniorityText =
+    context.seniority === "staff"
+      ? "资深/专家"
+      : context.seniority === "senior"
+        ? "高级"
+        : context.seniority === "junior"
+          ? "初级"
+          : "中级";
+  const salaryText = context.salaryK ? `${context.salaryK}K/月` : "";
   const cards = [...(context.knowledgeCards ?? [])].sort(
     (a, b) => (b.priorityScore ?? 0) - (a.priorityScore ?? 0) || (a.mastery ?? 0) - (b.mastery ?? 0),
   );
   const resumeProjects = context.resume?.projects ?? [];
+  const prepProjects = context.candidatePrep?.projectTalkTracks ?? [];
+  const prepRisks = context.candidatePrep?.riskPoints ?? [];
   const jdFocus = context.jobTarget?.interviewFocus ?? [];
   const focus = context.roundType ? roundFocus(context.roundType) : "综合能力";
 
@@ -757,7 +915,29 @@ function mockQuestion(context: InterviewContext): QuestionResult {
   if (context.jobTarget && jdFocus[0]) {
     candidates.push({
       source: "jd",
-      question: `这轮重点看${focus}。结合目标岗位的「${jdFocus[0]}」，请说一个你最匹配的项目案例。`,
+      question: difficulty === "hard"
+        ? `这轮按${seniorityText}${salaryText ? `、${salaryText}` : ""}强度看${focus}。结合目标岗位的「${jdFocus[0]}」，请讲一个能证明你具备复杂问题决策能力的项目案例。`
+        : `这轮重点看${focus}。结合目标岗位的「${jdFocus[0]}」，请说一个你最匹配的项目案例。`,
+    });
+  }
+
+  if (mode !== "company") {
+    candidates.push({
+      source: "resume",
+      question: difficulty === "hard" && prepProjects[0]
+        ? `按高级/高薪面试标准，先讲「${prepProjects[0].project}」：业务目标是什么，你做了哪些关键决策，架构取舍、风险控制和最终影响分别是什么？`
+        : prepProjects[0]
+          ? `先从你最该主讲的项目开始。请完整讲讲「${prepProjects[0].project}」：为什么它最能体现你适合${context.targetRole || "这个岗位"}，你负责了什么，最关键的技术取舍是什么？`
+        : resumeProjects[0]
+          ? `请展开讲讲「${resumeProjects[0]}」：你负责了哪部分，最难的技术点是什么？`
+          : "请选择简历中最能代表你能力的一个项目，讲清楚背景、职责、难点和结果。",
+    });
+  }
+
+  if (prepRisks[0]) {
+    candidates.push({
+      source: "resume",
+      question: `你准备材料里提到一个风险点：「${prepRisks[0]}」。如果面试官现场追问这块，你会怎么补充证明自己？`,
     });
   }
 
@@ -779,7 +959,9 @@ function mockQuestion(context: InterviewContext): QuestionResult {
 
   candidates.push({
     source: "general",
-    question: `如果面试官要求你证明自己适合${context.targetRole || "这个岗位"}，你会用哪段经历支撑？`,
+    question: difficulty === "hard"
+      ? `如果面试官按高级/高薪标准质疑你是否匹配${context.targetRole || "这个岗位"}，你会用哪段经历证明自己的技术判断、推动力和业务结果？`
+      : `如果面试官要求你证明自己适合${context.targetRole || "这个岗位"}，你会用哪段经历支撑？`,
   });
 
   return candidates.find((candidate) => !asked.has(candidate.question)) ?? {
@@ -858,6 +1040,182 @@ function mockFinishReview(context: InterviewContext): FinishReview {
         priority: context.jobTarget ? 88 : 60,
       },
     ],
+  };
+}
+
+function mockInterviewScript(context: InterviewScriptContext): InterviewScriptResult {
+  const resume = mockResumeParse(context.resumeText);
+  const skills = resume.skills.filter((skill) => skill !== "待补充技术栈");
+  const prepProject = context.candidatePrep?.projectTalkTracks[0];
+  const project = prepProject?.project || resume.projects[0] || "候选人最有代表性的项目";
+  const difficultyLabel = context.difficulty === "hard" ? "高难度" : context.difficulty === "easy" ? "基础" : "中等";
+  const seniorityLabel =
+    context.seniority === "staff"
+      ? "资深/专家"
+      : context.seniority === "senior"
+        ? "高级工程师"
+        : context.seniority === "junior"
+          ? "初级工程师"
+          : "中级工程师";
+  const salaryHint = context.salaryK ? `，期望月薪 ${context.salaryK}K` : "";
+  const count = Math.max(3, Math.min(context.questionCount || 6, 12));
+  const baseQuestions = [
+    {
+      question: prepProject
+        ? `请用 3 分钟介绍一下你最能体现${context.direction || "技术能力"}的项目：${project}。重点讲清楚为什么它最能证明你的岗位匹配度。`
+        : `请用 3 分钟介绍一下你最能体现${context.direction || "技术能力"}的项目：${project}`,
+      intent: "观察候选人是否能讲清楚背景、职责、方案、结果和复盘。",
+      followUps: ["这个项目里你个人不可替代的贡献是什么？", "如果再做一次，你会改哪里？"],
+      strongSignals: ["能量化结果", "能说清楚取舍", "能区分团队成果和个人贡献"],
+      redFlags: ["只描述业务背景", "无法解释关键技术决策", "贡献边界模糊"],
+    },
+    {
+      question: skills[0]
+        ? `你在简历里提到了 ${skills[0]}，请结合项目说说它解决了什么问题。`
+        : "请选一个你最熟悉的技术点，结合项目说明它解决了什么问题。",
+      intent: "判断技术点是否真的落到项目场景里。",
+      followUps: ["当时有没有替代方案？", "这个方案的代价是什么？"],
+      strongSignals: ["能讲出具体场景", "知道方案边界", "能比较替代方案"],
+      redFlags: ["只背概念", "无法描述上线效果", "不知道限制条件"],
+    },
+    {
+      question: `如果面试方向是${context.direction || "综合技术"}，你认为自己最匹配的证据是什么？`,
+      intent: "判断岗位匹配度和自我表达能力。",
+      followUps: ["这个证据和岗位要求怎么对应？", "还有哪块是你需要补齐的？"],
+      strongSignals: ["能主动映射岗位能力", "知道自己的短板", "有补齐计划"],
+      redFlags: ["回答泛泛而谈", "不能证明匹配", "缺少自我认知"],
+    },
+    {
+      question: "讲一次你排查复杂问题的经历，从现象、定位、修复到复盘完整展开。",
+      intent: "考察工程排障和系统性思考。",
+      followUps: ["你如何缩小问题范围？", "修复后如何防止再次发生？"],
+      strongSignals: ["有明确排查路径", "能沉淀监控或流程", "能说明根因"],
+      redFlags: ["靠猜测定位", "没有复盘", "只说结果不说过程"],
+    },
+    {
+      question: context.difficulty === "hard"
+        ? `按${seniorityLabel}${salaryHint}的标准，如果当前系统流量突然扩大 10 倍，你会从哪些层面重构或优化？`
+        : "如果当前项目性能变慢，你会优先检查哪些地方？",
+      intent: "考察架构意识、性能分析和优先级判断。",
+      followUps: ["你会先看哪些指标？", "短期方案和长期方案分别是什么？"],
+      strongSignals: ["按链路拆解", "关注指标和瓶颈", "知道风险控制"],
+      redFlags: ["直接给单点方案", "没有数据依据", "忽略成本"],
+    },
+    {
+      question: "请复盘一个你做得不够好的技术决策，当时为什么那样选，现在怎么看？",
+      intent: "观察反思能力和技术成熟度。",
+      followUps: ["你后来如何修正？", "这件事改变了你的哪些工程习惯？"],
+      strongSignals: ["能具体承认问题", "能讲出复盘结论", "能转化成方法论"],
+      redFlags: ["完全没有失败案例", "归因给外部", "没有后续改变"],
+    },
+  ];
+
+  while (baseQuestions.length < count) {
+    const index = baseQuestions.length + 1;
+    baseQuestions.push({
+      question: `第 ${index} 题：围绕${context.focus || context.direction || "目标岗位"}补充一个你最想让面试官看到的能力证据。`,
+      intent: "补齐候选人与岗位方向之间的证据链。",
+      followUps: ["这个证据可以如何量化？", "面试官可能会继续追问什么？"],
+      strongSignals: ["回答聚焦", "证据真实", "有量化结果"],
+      redFlags: ["内容空泛", "无法被追问验证", "没有结果"],
+    });
+  }
+
+  return {
+    title: `${context.roleName || context.direction || "技术岗位"} ${seniorityLabel}${difficultyLabel}文字面试文稿`,
+    overview: `本场围绕${context.direction || "综合技术"}展开，候选人目标为${seniorityLabel}${salaryHint}，优先深挖简历项目、技术真实性、问题排查和岗位匹配。`,
+    interviewerBrief: [
+      `难度口径：${seniorityLabel}${salaryHint}，按${difficultyLabel}标准追问。`,
+      ...(context.candidatePrep?.headline ? [`候选人准备摘要：${context.candidatePrep.headline}`] : []),
+      "先让候选人选择一个最有把握的项目，后续围绕同一项目连续追问。",
+      "每题先听完整回答，再用追问验证细节真实性。",
+      "记录候选人的具体证据、量化结果和不确定点。",
+    ],
+    questions: baseQuestions.slice(0, count).map((question, index) => ({ ...question, order: index + 1 })),
+    rubric: [
+      {
+        dimension: "项目深度",
+        good: "能讲清背景、个人职责、关键取舍和量化结果。",
+        average: "能描述做过什么，但细节和结果不足。",
+        weak: "只罗列技术名词，无法解释个人贡献。",
+      },
+      {
+        dimension: "技术理解",
+        good: "能解释原理、边界、替代方案和踩坑经验。",
+        average: "知道常见概念，但场景化不足。",
+        weak: "主要靠背答案，追问后容易断裂。",
+      },
+      {
+        dimension: "表达结构",
+        good: "结论先行，层次清晰，有复盘。",
+        average: "内容真实但组织松散。",
+        weak: "回答跳跃，重点不明。",
+      },
+    ],
+    closing: "今天的问题到这里。最后请你补充一个刚才没讲到、但最能证明你适合这个方向的经历。",
+    candidateTips: [
+      ...(context.candidatePrep?.selfIntro90s ? ["先把 90 秒自我介绍讲顺，再进入项目深挖。"] : []),
+      "每题先用一句话给结论，再展开背景、方案、结果。",
+      "准备被连续追问同一个项目，不要只背孤立八股。",
+      "所有技术点都尽量绑定真实场景和量化结果。",
+    ],
+  };
+}
+
+function mockArticleFormat(input: {
+  rawText: string;
+  sourceUrl?: string | null;
+  topicHint?: string | null;
+}): ArticleFormatResult {
+  const lines = input.rawText
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const firstLine = lines[0] || "未命名技术文章";
+  const title = firstLine.length > 36 ? `${firstLine.slice(0, 36)}...` : firstLine;
+  const text = input.rawText.toLowerCase();
+  const topic =
+    input.topicHint?.trim() ||
+    (text.includes("react")
+      ? "React"
+      : text.includes("redis")
+        ? "Redis"
+        : text.includes("mysql")
+          ? "MySQL"
+          : text.includes("系统设计")
+            ? "系统设计"
+            : text.includes("ai")
+              ? "AI"
+              : "技术总结");
+  const paragraphs = input.rawText
+    .split(/\n{2,}/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const bullets = paragraphs
+    .flatMap((part) => part.split(/[。；;]\s*/))
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 10)
+    .slice(0, 6);
+  const summary = (paragraphs[0] || input.rawText).replace(/\s+/g, " ").slice(0, 120);
+
+  return {
+    title,
+    topic,
+    tags: normalizeTags([topic, text.includes("性能") ? "性能优化" : "", text.includes("原理") ? "原理" : "技术笔记"]),
+    summary,
+    contentMarkdown: [
+      `# ${title}`,
+      "",
+      "## 摘要",
+      summary || "待补充摘要。",
+      "",
+      "## 核心内容",
+      ...(bullets.length ? bullets.map((item) => `- ${item}`) : lines.slice(0, 6).map((line) => `- ${line}`)),
+      "",
+      "## 原始摘录",
+      ...paragraphs.map((part) => part),
+      ...(input.sourceUrl ? ["", "## 来源", input.sourceUrl] : []),
+    ].join("\n"),
   };
 }
 

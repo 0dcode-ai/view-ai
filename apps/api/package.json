@@ -5,7 +5,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node dist/src/main.js",
-    "start:dev": "nest start --watch",
+    "start:dev": "prisma generate --schema prisma/schema.prisma && tsx watch --clear-screen=false src/main.ts",
     "build": "prisma generate --schema prisma/schema.prisma && nest build && node scripts/copy-prisma-client.cjs",
     "typecheck": "prisma generate --schema prisma/schema.prisma && tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
