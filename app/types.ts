@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   Newspaper,
   Rocket,
+  UserRound,
 } from "lucide-react";
 import type { InterviewMode, RoundType } from "@/lib/interview-modes";
 
@@ -122,13 +123,90 @@ export type ApplicationProgress = {
   nextActions: string[];
 };
 
+export type ApplicationStage = "saved" | "preparing" | "applied" | "interviewing" | "offer" | "closed";
+
+export type KeywordMatchItem = {
+  keyword: string;
+  category: string;
+  required: boolean;
+  found: boolean;
+  evidence: EvidenceRef[];
+  suggestion: string;
+};
+
+export type ResumeJobMatchReport = {
+  matchScore: number;
+  includedKeywords: KeywordMatchItem[];
+  missingKeywords: KeywordMatchItem[];
+  requiredKeywords: KeywordMatchItem[];
+  suggestedBullets: Array<{ keyword: string; bullet: string; reason: string }>;
+  summary: string;
+  usedFallback: boolean;
+};
+
+export type ResumeContentBlock = {
+  id: string;
+  type: string;
+  title: string;
+  content: string;
+  enabled: boolean;
+  keywords: string[];
+};
+
+export type ResumeVersion = {
+  id: number;
+  applicationId: number;
+  resumeProfileId: number | null;
+  title: string;
+  content: string;
+  blocks: ResumeContentBlock[];
+  matchReport: ResumeJobMatchReport | null;
+  suggestions: Record<string, unknown>;
+  isPrimary: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ApplicationActivity = {
+  id: number;
+  applicationId: number;
+  type: string;
+  title: string;
+  detail: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ApplicationDashboardMetrics = {
+  total: number;
+  active: number;
+  archived: number;
+  byStage: Record<string, number>;
+  averageMatchScore: number;
+};
+
 export type Application = {
   id: number;
   title: string;
   roleName: string;
   level: string;
   salaryK: number | null;
+  salaryMinK: number | null;
+  salaryMaxK: number | null;
   status: string;
+  stage: ApplicationStage;
+  jobUrl: string | null;
+  location: string | null;
+  source: string | null;
+  priority: number;
+  archived: boolean;
+  appliedAt: string | null;
+  followUpAt: string | null;
+  deadlineAt: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  jdSnapshot: string | null;
+  matchReport: ResumeJobMatchReport | null;
   interviewDate: string | null;
   progress: ApplicationProgress;
   nextAction: string | null;
@@ -136,6 +214,8 @@ export type Application = {
   company: CompanyOption | null;
   resumeProfile: ResumeProfile | null;
   jobTarget: JobTarget | null;
+  activities?: ApplicationActivity[];
+  resumeVersions?: ResumeVersion[];
   updatedAt: string;
 };
 
@@ -180,13 +260,129 @@ export type InterviewTurn = {
   order: number;
   question: string;
   questionSource: string | null;
+  turnType?: "primary" | "followup" | "discussion" | null;
+  parentTurnId?: number | null;
+  intent?: string | null;
   answer: string | null;
   feedback: string | null;
   betterAnswer: string | null;
+  idealAnswer?: string | null;
   transcriptSource: string;
   answerDurationSec: number | null;
   expression: Record<string, number | string>;
   score: Record<string, number>;
+  review?: Record<string, unknown> | null;
+};
+
+export type InterviewerSessionConfig = {
+  sessionKind: "mock_interviewer";
+  answerVisibility: "toggle";
+  scoringTiming: "final_only";
+  inputMode: "text";
+};
+
+export type InterviewerSessionContext = {
+  resumeText: string;
+  parsedResume: {
+    summary: string;
+    skills: string[];
+    experiences: string[];
+    projects: string[];
+    followUpQuestions: string[];
+  };
+  jdText: string | null;
+  jdKeywords: string[];
+  targetRole: string | null;
+  seniority: "junior" | "mid" | "senior" | "staff";
+  durationMinutes: 10 | 20 | 30 | 45;
+};
+
+export type InterviewerPlanTopic = {
+  id: string;
+  title: string;
+  source: "resume" | "jd" | "general";
+  kind: "project" | "skill" | "behavior" | "system" | "jd";
+  intent: string;
+  question: string;
+  idealAnswer: string;
+  asked: boolean;
+  required: boolean;
+};
+
+export type InterviewerSessionPlan = {
+  durationMinutes: 10 | 20 | 30 | 45;
+  turnBudget: number;
+  primaryQuestionBudget: number;
+  followUpBudget: number;
+  askedPrimaryCount: number;
+  askedFollowUpCount: number;
+  requiredProjectDeepDive: boolean;
+  projectDeepDiveCovered: boolean;
+  jdRequiredQuestionTarget: number;
+  jdRequiredQuestionCount: number;
+  currentTopicId: string | null;
+  topics: InterviewerPlanTopic[];
+};
+
+export type InterviewerTurnReview = {
+  dimensions: {
+    accuracy: number;
+    depth: number;
+    structure: number;
+    resumeGrounding: number;
+    roleRelevance: number;
+    clarity: number;
+  };
+  overallScore: number;
+  feedback: string;
+  betterAnswer: string;
+  missedPoints: string[];
+};
+
+export type InterviewerSessionSummary = {
+  overallScore: number;
+  dimensionAverages: {
+    accuracy: number;
+    depth: number;
+    structure: number;
+    resumeGrounding: number;
+    roleRelevance: number;
+    clarity: number;
+  };
+  summary: string;
+  strengths: string[];
+  nextActions: string[];
+  turns: Array<{
+    turnId: number;
+    order: number;
+    question: string;
+    answer: string | null;
+    score: number;
+    feedback: string;
+    idealAnswer: string;
+    missedPoints: string[];
+  }>;
+  questionReviews: Array<{
+    turnId: number;
+    order: number;
+    question: string;
+    score: number;
+    feedback: string;
+    idealAnswer: string;
+    missedPoints: string[];
+    answers: string[];
+    followUps: string[];
+  }>;
+  discussionReviews: Array<{
+    turnId: number;
+    order: number;
+    question: string;
+    score: number;
+    feedback: string;
+    idealAnswer: string;
+    missedPoints: string[];
+    answers: string[];
+  }>;
 };
 
 export type InterviewSession = {
@@ -203,7 +399,11 @@ export type InterviewSession = {
   company: CompanyOption | null;
   jobTarget: JobTarget | null;
   resumeProfile: ResumeProfile | null;
+  context?: InterviewerSessionContext | null;
+  config?: InterviewerSessionConfig | null;
+  plan?: InterviewerSessionPlan | null;
   turns: InterviewTurn[];
+  createdAt?: string;
   updatedAt: string;
 };
 
@@ -516,14 +716,81 @@ export type GithubTrendRepo = {
   rank: number;
 };
 
+export type GithubRadarTopRepository = {
+  id: number;
+  fullName: string;
+  score: number;
+  rank: number;
+  theme: string;
+  starDelta24h: number;
+  starDelta7d: number;
+  tags: string[];
+  dedupedCount: number;
+  reason: string;
+};
+
+export type GithubRadarTheme = {
+  key: string;
+  label: string;
+  repoCount: number;
+  averageScore: number;
+  average24hDelta: number;
+  average7dDelta: number;
+  languages: string[];
+  leadRepos: Array<{
+    id: number;
+    fullName: string;
+    score: number;
+  }>;
+  signals: string[];
+};
+
+export type GithubRadarBrief = {
+  headline: string;
+  summary: string;
+  keySignals: string[];
+  watchlist: string[];
+  selectedRepoCount: number;
+  dedupedRepoCount: number;
+  uniqueThemeCount: number;
+  topRepositories: GithubRadarTopRepository[];
+  themeClusters: GithubRadarTheme[];
+};
+
+export type GithubRadarDigest = {
+  title: string;
+  summary: string;
+  themeTakeaways: string[];
+  opportunities: string[];
+  risks: string[];
+  recommendedActions: string[];
+  watchItems: Array<{
+    repoFullName: string;
+    action: string;
+    reason: string;
+  }>;
+  usedFallback?: boolean;
+  model?: string;
+};
+
 export type GithubTrendListResponse = {
   repositories: GithubTrendRepo[];
   languages: string[];
   topics: string[];
+  radar: GithubRadarBrief;
   meta: {
     snapshotDate: string;
     total: number;
     cacheHit: boolean;
+  };
+};
+
+export type GithubRadarDigestResponse = {
+  digest: GithubRadarDigest;
+  execution: {
+    model: string;
+    usedFallback: boolean;
+    steps: string[];
   };
 };
 
@@ -543,7 +810,7 @@ export type KnowledgeForm = {
   note: string;
 };
 
-export type TabKey = "home" | "applications" | "interview" | "records" | "github" | "agents" | "articles" | "ideas" | "targets" | "prep" | "knowledge" | "resume" | "sprint" | "review" | "trends" | "lab";
+export type TabKey = "home" | "applications" | "interviewer" | "interview" | "records" | "github" | "agents" | "articles" | "ideas" | "targets" | "prep" | "knowledge" | "resume" | "sprint" | "review" | "trends" | "lab";
 
 export const pageLabels: Record<TabKey, string> = {
   applications: "求职机会",
@@ -557,7 +824,8 @@ export const pageLabels: Record<TabKey, string> = {
   prep: "公司",
   knowledge: "八股",
   resume: "简历",
-  interview: "模拟",
+  interviewer: "面试官 Agent",
+  interview: "模拟练习",
   sprint: "计划",
   review: "复盘",
   trends: "趋势",
@@ -583,9 +851,11 @@ export const emptyKnowledgeForm: KnowledgeForm = {
 export const navItems: Array<{ key: TabKey; label: string; icon: typeof BookOpen; group: "core" | "hidden" }> = [
   { key: "home", label: "今日", icon: Home, group: "core" },
   { key: "applications", label: pageLabels.applications, icon: BriefcaseBusiness, group: "core" },
+  { key: "interviewer", label: pageLabels.interviewer, icon: UserRound, group: "core" },
   { key: "interview", label: pageLabels.interview, icon: MessageSquareText, group: "core" },
   { key: "records", label: "知识库", icon: BookMarked, group: "core" },
   { key: "github", label: pageLabels.github, icon: GitBranch, group: "core" },
+  { key: "ideas", label: pageLabels.ideas, icon: Rocket, group: "core" },
   { key: "agents", label: pageLabels.agents, icon: Rocket, group: "core" },
 ];
 

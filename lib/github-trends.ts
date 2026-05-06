@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { safeJsonParse } from "@/lib/tags";
 import type { GithubRepoAnalysis, GithubTrendRepo, GithubTrendSnapshot } from "@/app/types";
+import { buildGithubRadarBrief } from "@/lib/github-radar";
 
 type GithubSearchRepo = {
   id: number;
@@ -73,6 +74,7 @@ export async function listGithubTrends(filters: TrendFilters = {}) {
     repositories: ranked,
     languages: collectLanguages(repositories),
     topics: collectTopics(repositories),
+    radar: buildGithubRadarBrief(ranked, filters),
     meta: {
       snapshotDate,
       total: ranked.length,

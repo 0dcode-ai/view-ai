@@ -22,7 +22,7 @@
     "typecheck:shared": "npm run typecheck -w packages/shared",
     "test": "vitest run",
     "test:api": "npm run test -w apps/api",
-    "db:push": "prisma generate && node scripts/init-db.js",
+    "db:push": "prisma db push && prisma generate && node scripts/init-db.js",
     "legacy:export": "node scripts/export-legacy-data.js",
     "prisma:generate": "prisma generate",
     "studio": "prisma studio"

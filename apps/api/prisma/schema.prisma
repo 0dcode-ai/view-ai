@@ -278,6 +278,9 @@ model InterviewSession {
   summary         String?
   scoreJson       String          @default("{}")
   expressionJson  String          @default("{}")
+  contextJson     String          @default("{}")
+  configJson      String          @default("{}")
+  planJson        String          @default("{}")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   application     Application?    @relation(fields: [applicationId], references: [id], onDelete: SetNull)
@@ -303,14 +306,19 @@ model InterviewTurn {
   order             Int
   question          String
   questionSource    String?
+  turnType          String?
+  parentTurnId      Int?
+  intent            String?
   answer            String?
   feedback          String?
   betterAnswer      String?
+  idealAnswer       String?
   transcriptSource  String           @default("text")
   answerDurationSec Int?
   audioMetaJson     String           @default("{}")
   expressionJson    String           @default("{}")
   scoreJson         String           @default("{}")
+  reviewJson        String           @default("{}")
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)

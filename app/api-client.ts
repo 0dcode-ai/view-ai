@@ -2,7 +2,7 @@ import { ApiClient } from "@interview/shared";
 
 const externalBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
 const migratedResources = new Set(
-  (process.env.NEXT_PUBLIC_API_MIGRATED_RESOURCES || "knowledge,resumes,job-targets,interviews,reviews,sprints,daily,experiences,companies,labs,learning-paths,applications,sources,agents")
+  (process.env.NEXT_PUBLIC_API_MIGRATED_RESOURCES || "knowledge,resumes,job-targets,interviews,interviewer-sessions,reviews,sprints,daily,experiences,companies,labs,learning-paths,applications,resume-versions,sources,agents")
     .split(",")
     .map((resource) => resource.trim())
     .filter(Boolean),
@@ -28,6 +28,7 @@ function shouldProxyToExternalApi(path: string) {
     (migratedResources.has("resumes") && isResumeCrudPath(path)) ||
     (migratedResources.has("job-targets") && isJobTargetPath(path)) ||
     (migratedResources.has("interviews") && isInterviewPath(path)) ||
+    (migratedResources.has("interviewer-sessions") && isInterviewerSessionPath(path)) ||
     (migratedResources.has("reviews") && isReviewPath(path)) ||
     (migratedResources.has("sprints") && isSprintPath(path)) ||
     (migratedResources.has("daily") && isDailyPath(path)) ||
@@ -36,6 +37,7 @@ function shouldProxyToExternalApi(path: string) {
     (migratedResources.has("labs") && isLabPath(path)) ||
     (migratedResources.has("learning-paths") && isLearningPath(path)) ||
     (migratedResources.has("applications") && isApplicationPath(path)) ||
+    (migratedResources.has("resume-versions") && isResumeVersionPath(path)) ||
     (migratedResources.has("sources") && isSourcePath(path)) ||
     (migratedResources.has("agents") && isAgentPath(path))
   );
@@ -74,6 +76,11 @@ function isInterviewPath(path: string) {
     pathname === "/api/interviews/answer" ||
     pathname === "/api/interviews/finish"
   );
+}
+
+function isInterviewerSessionPath(path: string) {
+  const pathname = path.split("?")[0] ?? "";
+  return pathname === "/api/interviewer-sessions/start" || /^\/api\/interviewer-sessions\/\d+\/(answer|finish)$/.test(pathname);
 }
 
 function isReviewPath(path: string) {
@@ -134,7 +141,12 @@ function isApplicationPath(path: string) {
   if (pathname === "/api/applications") {
     return true;
   }
-  return /^\/api\/applications\/\d+$/.test(pathname);
+  return /^\/api\/applications\/\d+(\/(match|resume-versions))?$/.test(pathname);
+}
+
+function isResumeVersionPath(path: string) {
+  const pathname = path.split("?")[0] ?? "";
+  return /^\/api\/resume-versions\/\d+(\/(generate-bullet|auto-select))?$/.test(pathname);
 }
 
 function isSourcePath(path: string) {

@@ -109,6 +109,9 @@ model InterviewSession {
   summary         String?
   scoreJson       String          @default("{}")
   expressionJson  String          @default("{}")
+  contextJson     String          @default("{}")
+  configJson      String          @default("{}")
+  planJson        String          @default("{}")
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   company         Company?        @relation(fields: [targetCompanyId], references: [id], onDelete: SetNull)
@@ -124,22 +127,27 @@ model InterviewSession {
 }
 
 model InterviewTurn {
-  id             Int              @id @default(autoincrement())
-  sessionId      Int
-  order          Int
-  question       String
-  questionSource String?
-  answer         String?
-  feedback       String?
-  betterAnswer   String?
-  transcriptSource String         @default("text")
+  id                Int              @id @default(autoincrement())
+  sessionId         Int
+  order             Int
+  question          String
+  questionSource    String?
+  turnType          String?
+  parentTurnId      Int?
+  intent            String?
+  answer            String?
+  feedback          String?
+  betterAnswer      String?
+  idealAnswer       String?
+  transcriptSource  String           @default("text")
   answerDurationSec Int?
-  audioMetaJson  String           @default("{}")
-  expressionJson String           @default("{}")
-  scoreJson      String           @default("{}")
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  session        InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  audioMetaJson     String           @default("{}")
+  expressionJson    String           @default("{}")
+  scoreJson         String           @default("{}")
+  reviewJson        String           @default("{}")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  session           InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@unique([sessionId, order])
   @@index([sessionId])

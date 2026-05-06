@@ -8,6 +8,13 @@ export const dynamic = "force-dynamic";
 
 const bodySchema = z.object({
   jobTargetId: z.number().int().positive().optional(),
+  applicationId: z.number().int().positive().optional(),
+  githubSources: z.array(
+    z.object({
+      title: z.string(),
+      content: z.string(),
+    }),
+  ).optional(),
 });
 
 function parseId(value: string) {
@@ -31,6 +38,18 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
 
   const jobTarget = parsed.data.jobTargetId
     ? await prisma.jobTarget.findUnique({ where: { id: parsed.data.jobTargetId } })
+    : null;
+  const githubSources = parsed.data.githubSources ?? [];
+
+  const githubContext = githubSources.length
+    ? {
+      summaries: githubSources.map((source) => source.content.split("\n").slice(0, 3).join(" ")).filter(Boolean).slice(0, 4),
+      topSignals: githubSources
+        .map((source) => source.content.split("\n").find((line) => /机会点|重点仓库|主题判断|AI 总结|为什么值得关注/.test(line)) || source.title)
+        .filter(Boolean)
+        .slice(0, 5),
+      suggestedReferences: githubSources.map((source) => `可以结合 ${source.title}，补一段你对开源实现或竞品判断。`).slice(0, 4),
+    }
     : null;
 
   const payload = await runCandidatePrepAgent({
@@ -62,6 +81,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           }),
         }
       : null,
+    githubContext,
   });
 
   await prisma.resumeProfile.update({

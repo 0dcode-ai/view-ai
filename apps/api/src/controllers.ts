@@ -2,8 +2,10 @@ import { Body, Controller, Delete, Get, Inject, Param, Patch, Post, Query } from
 import {
   answerInterviewSchema,
   answerInterviewBySessionSchema,
+  answerInterviewerSessionSchema,
   agentRunSchema,
   createApplicationSchema,
+  createResumeVersionSchema,
   createAgentRunLogSchema,
   createExperienceSchema,
   createKnowledgeSchema,
@@ -14,11 +16,13 @@ import {
   parseJobTargetSchema,
   parseResumeSchema,
   startInterviewSchema,
+  startInterviewerSessionSchema,
   startLabSchema,
   submitLabBySessionSchema,
   submitLabSchema,
   updateAgentConfigSchema,
   updateApplicationSchema,
+  updateResumeVersionSchema,
   updateKnowledgeSchema,
   updateKnowledgeProgressSchema,
   updateReviewSchema,
@@ -159,6 +163,41 @@ class ApplicationsController {
   update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
     return this.core.updateApplication(user, Number(id), parseBody(updateApplicationSchema, body));
   }
+
+  @Post(":id/match")
+  match(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.matchApplication(user, Number(id));
+  }
+
+  @Get(":id/resume-versions")
+  resumeVersions(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.listResumeVersions(user, Number(id));
+  }
+
+  @Post(":id/resume-versions")
+  createResumeVersion(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.createResumeVersion(user, Number(id), parseBody(createResumeVersionSchema, body));
+  }
+}
+
+@Controller("resume-versions")
+class ResumeVersionsController {
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
+
+  @Patch(":id")
+  update(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.updateResumeVersion(user, Number(id), parseBody(updateResumeVersionSchema, body));
+  }
+
+  @Post(":id/generate-bullet")
+  generateBullet(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: { keyword?: string }) {
+    return this.core.generateResumeBullet(user, Number(id), body.keyword ?? "");
+  }
+
+  @Post(":id/auto-select")
+  autoSelect(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.autoSelectResumeVersion(user, Number(id));
+  }
 }
 
 @Controller("sources")
@@ -213,6 +252,26 @@ class InterviewsController {
   @Post("transcribe")
   transcribe(@Body() body: { text?: string }) {
     return this.core.transcribeAnswer(body);
+  }
+}
+
+@Controller("interviewer-sessions")
+class InterviewerSessionsController {
+  constructor(@Inject(CoreService) private readonly core: CoreService) {}
+
+  @Post("start")
+  start(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.startInterviewerSession(user, parseBody(startInterviewerSessionSchema, body));
+  }
+
+  @Post(":id/answer")
+  answer(@CurrentUser() user: AuthUser, @Param("id") id: string, @Body() body: unknown) {
+    return this.core.answerInterviewerSession(user, Number(id), parseBody(answerInterviewerSessionSchema, body));
+  }
+
+  @Post(":id/finish")
+  finish(@CurrentUser() user: AuthUser, @Param("id") id: string) {
+    return this.core.finishInterviewerSession(user, Number(id));
   }
 }
 
@@ -380,8 +439,10 @@ export const ApiControllers = [
   ResumesController,
   JobTargetsController,
   ApplicationsController,
+  ResumeVersionsController,
   SourcesController,
   InterviewsController,
+  InterviewerSessionsController,
   ReviewsController,
   SprintsController,
   SprintTasksController,

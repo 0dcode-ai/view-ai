@@ -59,6 +59,11 @@ export type CandidatePrepInput = {
     parsed: JobTargetParseResult;
     match: ResumeJobMatch;
   } | null;
+  githubContext?: {
+    summaries: string[];
+    topSignals: string[];
+    suggestedReferences: string[];
+  } | null;
 };
 
 type ResumeBrief = z.infer<typeof resumeBriefSchema>;
@@ -333,6 +338,8 @@ function buildFallbackBrief(input: CandidatePrepInput): ResumeBrief {
         ...input.jobTarget.match.strengths.slice(0, 2),
       ]
     : ["先围绕简历本身把代表项目和核心技术讲扎实。"];
+  const githubSignals = input.githubContext?.topSignals ?? [];
+  const githubReferences = input.githubContext?.suggestedReferences ?? [];
 
   return {
     headline: input.jobTarget
@@ -347,8 +354,8 @@ function buildFallbackBrief(input: CandidatePrepInput): ResumeBrief {
     riskPoints: input.jobTarget
       ? [...input.jobTarget.match.gaps.slice(0, 3), "注意把项目里的个人贡献和结果讲具体。"]
       : ["注意把个人贡献、技术取舍和结果数据讲具体。", "避免只背技术名词，不绑定真实项目。"],
-    followUpQuestions: input.resume.parsed.followUpQuestions.slice(0, 5),
-    jobAlignment: jobAlignment.slice(0, 4),
+    followUpQuestions: [...input.resume.parsed.followUpQuestions.slice(0, 4), ...githubReferences.slice(0, 2)].slice(0, 6),
+    jobAlignment: [...jobAlignment, ...githubSignals.map((signal) => `开源参考：${signal}`)].slice(0, 5),
   };
 }
 
@@ -372,7 +379,9 @@ function buildFallbackStory(input: CandidatePrepInput, brief: ResumeBrief): Cand
       ],
       proofPoints: [
         "给出一项量化结果，如性能、稳定性或效率提升",
-        "讲一个真实踩坑点和你是怎么解决的",
+        input.githubContext?.summaries?.[0]
+          ? `可以顺带对比一个开源实现视角：${input.githubContext.summaries[0]}`
+          : "讲一个真实踩坑点和你是怎么解决的",
       ],
     })).slice(0, 3),
   };
@@ -426,6 +435,7 @@ async function analyzeResumeNode(state: typeof AgentState.State) {
     {
       resume: input.resume,
       jobTarget: input.jobTarget ?? null,
+      githubContext: input.githubContext ?? null,
     },
     briefSchemaHint,
     fallback,
@@ -465,6 +475,7 @@ async function shapeCandidateStoryNode(state: typeof AgentState.State) {
     {
       resume: input.resume,
       jobTarget: input.jobTarget ?? null,
+      githubContext: input.githubContext ?? null,
       brief,
     },
     storySchemaHint,
@@ -501,6 +512,7 @@ async function finalizePrepPanelNode(state: typeof AgentState.State) {
     {
       resume: input.resume,
       jobTarget: input.jobTarget ?? null,
+      githubContext: input.githubContext ?? null,
       brief,
       story,
     },

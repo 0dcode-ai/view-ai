@@ -26,6 +26,15 @@ import type {
   experienceListResponseSchema,
   generateSprintSchema,
   finishInterviewSchema,
+  interviewerSessionAnswerResponseSchema,
+  interviewerSessionFinishResponseSchema,
+  interviewerSessionListResponseSchema,
+  interviewerSessionStartResponseSchema,
+  interviewerSessionConfigSchema,
+  interviewerSessionContextSchema,
+  interviewerSessionPlanSchema,
+  interviewerSessionSummarySchema,
+  interviewerTurnReviewSchema,
   interviewSessionSchema,
   labListResponseSchema,
   jobTargetSchema,
@@ -55,6 +64,8 @@ import type {
   startLabSchema,
   sourceDocumentSchema,
   sourceListResponseSchema,
+  startInterviewerSessionSchema,
+  answerInterviewerSessionSchema,
   submitLabBySessionSchema,
   submitLabSchema,
   topicOptionSchema,
@@ -102,6 +113,12 @@ export type SourceDocument = z.infer<typeof sourceDocumentSchema>;
 export type SourceListResponse = z.infer<typeof sourceListResponseSchema>;
 export type CreateSourceDocumentInput = z.infer<typeof createSourceDocumentSchema>;
 export type InterviewSession = z.infer<typeof interviewSessionSchema>;
+export type InterviewerSession = z.infer<typeof interviewSessionSchema>;
+export type InterviewerSessionConfig = z.infer<typeof interviewerSessionConfigSchema>;
+export type InterviewerSessionContext = z.infer<typeof interviewerSessionContextSchema>;
+export type InterviewerSessionPlan = z.infer<typeof interviewerSessionPlanSchema>;
+export type InterviewerTurnReview = z.infer<typeof interviewerTurnReviewSchema>;
+export type InterviewerSessionSummary = z.infer<typeof interviewerSessionSummarySchema>;
 export type ReviewCard = z.infer<typeof reviewCardSchema>;
 export type SprintTask = z.infer<typeof sprintTaskSchema>;
 export type SprintPlan = z.infer<typeof sprintPlanSchema>;
@@ -120,6 +137,12 @@ export type StartInterviewInput = z.infer<typeof startInterviewSchema>;
 export type AnswerInterviewInput = z.infer<typeof answerInterviewSchema>;
 export type AnswerInterviewBySessionInput = z.infer<typeof answerInterviewBySessionSchema>;
 export type FinishInterviewInput = z.infer<typeof finishInterviewSchema>;
+export type StartInterviewerSessionInput = z.infer<typeof startInterviewerSessionSchema>;
+export type AnswerInterviewerSessionInput = z.infer<typeof answerInterviewerSessionSchema>;
+export type InterviewerSessionListResponse = z.infer<typeof interviewerSessionListResponseSchema>;
+export type InterviewerSessionStartResponse = z.infer<typeof interviewerSessionStartResponseSchema>;
+export type InterviewerSessionAnswerResponse = z.infer<typeof interviewerSessionAnswerResponseSchema>;
+export type InterviewerSessionFinishResponse = z.infer<typeof interviewerSessionFinishResponseSchema>;
 export type ReviewListResponse = z.infer<typeof reviewListResponseSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type SprintListResponse = z.infer<typeof sprintListResponseSchema>;

@@ -101,7 +101,7 @@ export const updateKnowledgeSchema = z.object({
   note: z.string().nullable().optional(),
 });
 
-export const agentNameSchema = z.enum(["knowledge-record", "startup-idea", "candidate-prep", "github-repo", "knowledge-ingest", "application-match", "resume-tailor"]);
+export const agentNameSchema = z.enum(["knowledge-record", "startup-idea", "candidate-prep", "github-repo", "knowledge-ingest", "application-match", "resume-tailor", "mock-interviewer"]);
 
 export const evidenceRefSchema = z.object({
   sourceId: z.number().nullable().optional(),
@@ -458,13 +458,135 @@ export const interviewTurnSchema = z.object({
   order: z.number(),
   question: z.string(),
   questionSource: z.string().nullable(),
+  turnType: z.enum(["primary", "followup", "discussion"]).nullable().optional(),
+  parentTurnId: z.number().nullable().optional(),
+  intent: z.string().nullable().optional(),
   answer: z.string().nullable(),
   feedback: z.string().nullable(),
   betterAnswer: z.string().nullable(),
+  idealAnswer: z.string().nullable().optional(),
   transcriptSource: z.string(),
   answerDurationSec: z.number().nullable(),
   expression: z.record(z.string(), z.union([z.number(), z.string()])),
   score: z.record(z.string(), z.number()),
+  review: z.record(z.string(), z.unknown()).nullable().optional(),
+});
+
+export const interviewerSessionConfigSchema = z.object({
+  sessionKind: z.literal("mock_interviewer"),
+  answerVisibility: z.literal("toggle"),
+  scoringTiming: z.literal("final_only"),
+  inputMode: z.literal("text"),
+});
+
+export const interviewerSessionContextSchema = z.object({
+  resumeText: z.string(),
+  parsedResume: z.object({
+    summary: z.string(),
+    skills: z.array(z.string()),
+    experiences: z.array(z.string()),
+    projects: z.array(z.string()),
+    followUpQuestions: z.array(z.string()),
+  }),
+  jdText: z.string().nullable(),
+  jdKeywords: z.array(z.string()),
+  targetRole: z.string().nullable(),
+  seniority: z.enum(["junior", "mid", "senior", "staff"]),
+  durationMinutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45)]),
+});
+
+export const interviewerPlanTopicSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  source: z.enum(["resume", "jd", "general"]),
+  kind: z.enum(["project", "skill", "behavior", "system", "jd"]),
+  intent: z.string(),
+  question: z.string(),
+  idealAnswer: z.string(),
+  asked: z.boolean(),
+  required: z.boolean(),
+});
+
+export const interviewerSessionPlanSchema = z.object({
+  durationMinutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45)]),
+  turnBudget: z.number(),
+  primaryQuestionBudget: z.number(),
+  followUpBudget: z.number(),
+  askedPrimaryCount: z.number(),
+  askedFollowUpCount: z.number(),
+  requiredProjectDeepDive: z.boolean(),
+  projectDeepDiveCovered: z.boolean(),
+  jdRequiredQuestionTarget: z.number(),
+  jdRequiredQuestionCount: z.number(),
+  currentTopicId: z.string().nullable(),
+  topics: z.array(interviewerPlanTopicSchema),
+});
+
+export const interviewerTurnReviewSchema = z.object({
+  dimensions: z.object({
+    accuracy: z.number().int().min(1).max(5),
+    depth: z.number().int().min(1).max(5),
+    structure: z.number().int().min(1).max(5),
+    resumeGrounding: z.number().int().min(1).max(5),
+    roleRelevance: z.number().int().min(1).max(5),
+    clarity: z.number().int().min(1).max(5),
+  }),
+  overallScore: z.number().int().min(0).max(100),
+  feedback: z.string(),
+  betterAnswer: z.string(),
+  missedPoints: z.array(z.string()),
+});
+
+export const interviewerSessionSummarySchema = z.object({
+  overallScore: z.number().int().min(0).max(100),
+  dimensionAverages: z.object({
+    accuracy: z.number(),
+    depth: z.number(),
+    structure: z.number(),
+    resumeGrounding: z.number(),
+    roleRelevance: z.number(),
+    clarity: z.number(),
+  }),
+  summary: z.string(),
+  strengths: z.array(z.string()),
+  nextActions: z.array(z.string()),
+  turns: z.array(
+    z.object({
+      turnId: z.number(),
+      order: z.number(),
+      question: z.string(),
+      answer: z.string().nullable(),
+      score: z.number().int().min(0).max(100),
+      feedback: z.string(),
+      idealAnswer: z.string(),
+      missedPoints: z.array(z.string()),
+    }),
+  ),
+  questionReviews: z.array(
+    z.object({
+      turnId: z.number(),
+      order: z.number(),
+      question: z.string(),
+      score: z.number().int().min(0).max(100),
+      feedback: z.string(),
+      idealAnswer: z.string(),
+      missedPoints: z.array(z.string()),
+      answers: z.array(z.string()),
+      followUps: z.array(z.string()),
+    }),
+  ),
+  discussionReviews: z.array(
+    z.object({
+      turnId: z.number(),
+      order: z.number(),
+      question: z.string(),
+      score: z.number().int().min(0).max(100),
+      feedback: z.string(),
+      idealAnswer: z.string(),
+      missedPoints: z.array(z.string()),
+      answers: z.array(z.string()),
+    }),
+  ),
 });
 
 export const interviewSessionSchema = z.object({
@@ -477,10 +599,15 @@ export const interviewSessionSchema = z.object({
   summary: z.string().nullable(),
   score: z.record(z.string(), z.number()),
   expression: z.record(z.string(), z.unknown()),
+  application: z.object({ id: z.number(), title: z.string(), roleName: z.string() }).nullable().optional(),
   company: companyOptionSchema.nullable(),
   jobTarget: jobTargetSchema.nullable(),
   resumeProfile: resumeProfileSchema.nullable(),
+  context: interviewerSessionContextSchema.nullable().optional(),
+  config: interviewerSessionConfigSchema.nullable().optional(),
+  plan: interviewerSessionPlanSchema.nullable().optional(),
   turns: z.array(interviewTurnSchema),
+  createdAt: z.string().optional(),
   updatedAt: z.string(),
 });
 
@@ -513,6 +640,49 @@ export const answerInterviewBySessionSchema = answerInterviewSchema.extend({
 
 export const finishInterviewSchema = z.object({
   sessionId: z.number().int().positive(),
+});
+
+export const startInterviewerSessionSchema = z.object({
+  resumeProfileId: z.number().int().positive().optional(),
+  resumeText: z.string().min(20).optional(),
+  jdText: z.string().min(20).optional().or(z.literal("")).optional(),
+  targetRole: z.string().optional(),
+  targetCompanyName: z.string().optional(),
+  seniority: z.enum(["junior", "mid", "senior", "staff"]).default("mid"),
+  durationMinutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45)]).default(20),
+}).refine((input) => Boolean(input.resumeProfileId || input.resumeText?.trim()), {
+  message: "必须提供简历文本或选择一份简历。",
+  path: ["resumeText"],
+});
+
+export const answerInterviewerSessionSchema = z.object({
+  answer: z.string().min(1),
+  turnId: z.number().int().positive().optional(),
+  mode: z.enum(["turn", "discussion"]).default("turn"),
+  title: z.string().optional(),
+  sourceTurnId: z.number().int().positive().optional(),
+  transcriptSource: z.literal("text").default("text"),
+  answerDurationSec: z.number().int().positive().optional(),
+});
+
+export const interviewerSessionListResponseSchema = z.object({
+  sessions: z.array(interviewSessionSchema),
+});
+
+export const interviewerSessionStartResponseSchema = z.object({
+  session: interviewSessionSchema,
+});
+
+export const interviewerSessionAnswerResponseSchema = z.object({
+  session: interviewSessionSchema,
+  answeredTurn: interviewTurnSchema,
+  nextTurn: interviewTurnSchema.nullable(),
+  shouldFinish: z.boolean(),
+});
+
+export const interviewerSessionFinishResponseSchema = z.object({
+  session: interviewSessionSchema,
+  summary: interviewerSessionSummarySchema,
 });
 
 export const reviewCardSchema = z.object({

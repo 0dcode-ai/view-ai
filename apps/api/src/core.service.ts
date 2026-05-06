@@ -14,6 +14,8 @@ import type {
   CreateResumeVersionInput,
   GenerateSprintInput,
   FinishInterviewInput,
+  AnswerInterviewerSessionInput,
+  StartInterviewerSessionInput,
   ParseExperienceInput,
   ParseJobTargetInput,
   ParseResumeInput,
@@ -53,6 +55,59 @@ import { normalizeTags, safeJsonParse, tagsToJson } from "./utils/json";
 import { nextReviewDate, priorityFromReview } from "./utils/srs";
 
 type Query = Record<string, string | undefined>;
+type MockSeniority = "junior" | "mid" | "senior" | "staff";
+type MockTopic = {
+  id: string;
+  title: string;
+  source: "resume" | "jd" | "general";
+  kind: "project" | "skill" | "behavior" | "system" | "jd";
+  intent: string;
+  question: string;
+  idealAnswer: string;
+  asked: boolean;
+  required: boolean;
+};
+type MockInterviewerContext = {
+  resumeText: string;
+  parsedResume: ReturnType<typeof parseResumeText>;
+  jdText: string | null;
+  jdKeywords: string[];
+  targetRole: string | null;
+  seniority: MockSeniority;
+  durationMinutes: 10 | 20 | 30 | 45;
+};
+type MockInterviewerPlan = {
+  durationMinutes: 10 | 20 | 30 | 45;
+  turnBudget: number;
+  primaryQuestionBudget: number;
+  followUpBudget: number;
+  askedPrimaryCount: number;
+  askedFollowUpCount: number;
+  requiredProjectDeepDive: boolean;
+  projectDeepDiveCovered: boolean;
+  jdRequiredQuestionTarget: number;
+  jdRequiredQuestionCount: number;
+  currentTopicId: string | null;
+  topics: MockTopic[];
+};
+type MockTurnLike = {
+  id: number;
+  order: number;
+  question: string;
+  questionSource: string | null;
+  turnType?: "primary" | "followup" | "discussion" | null;
+  parentTurnId?: number | null;
+  intent?: string | null;
+  answer?: string | null;
+  feedback?: string | null;
+  betterAnswer?: string | null;
+  idealAnswer?: string | null;
+};
+
+function normalizeMockTurnType(value: string | null): MockTurnLike["turnType"] {
+  return value === "primary" || value === "followup" || value === "discussion" ? value : null;
+}
+
 type SeedQuestion = {
   question: string;
   answer: string;
@@ -187,6 +242,7 @@ const knownAgents = [
   { agentName: "github-repo", displayName: "GitHub 仓库分析 Agent" },
   { agentName: "application-match", displayName: "求职机会匹配 Agent" },
   { agentName: "resume-tailor", displayName: "简历定制 Agent" },
+  { agentName: "mock-interviewer", displayName: "面试官 Agent" },
 ] as const;
 
 @Injectable()
@@ -355,29 +411,61 @@ export class CoreService {
     };
   }
 
+  private async logAgentRun(userId: string, agentName: string, status: "success" | "fallback" | "error", input: Record<string, unknown>, output: Record<string, unknown>) {
+    await this.prisma.agentRunLog.create({
+      data: {
+        userId,
+        agentName,
+        status,
+        model: process.env.OPENAI_MODEL || "GLM-5.1",
+        usedFallback: true,
+        latencyMs: 0,
+        resourceType: "interview_session",
+        resourceId: typeof output.sessionId === "number" ? String(output.sessionId) : null,
+        inputJson: JSON.stringify(input),
+        outputJson: JSON.stringify(output),
+        errorJson: JSON.stringify({}),
+        tokenUsageJson: JSON.stringify({}),
+      },
+    });
+  }
+
   async listApplications(user: AuthUser, query: Query) {
     await this.ensureUser(user);
+    const where = {
+      userId: user.id,
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.stage ? { stage: query.stage } : {}),
+      ...(query.level ? { level: query.level } : {}),
+      ...(query.archived !== undefined ? { archived: query.archived === "true" } : { archived: false }),
+      ...(query.company ? { company: { is: { name: { contains: query.company } } } } : {}),
+      ...(query.q
+        ? {
+            OR: [
+              { title: { contains: query.q } },
+              { roleName: { contains: query.q } },
+              { note: { contains: query.q } },
+              { location: { contains: query.q } },
+              { source: { contains: query.q } },
+              { company: { is: { name: { contains: query.q } } } },
+            ],
+          }
+        : {}),
+    } satisfies Prisma.ApplicationWhereInput;
+    const orderBy =
+      query.sort === "priority"
+        ? [{ priority: "desc" as const }, { updatedAt: "desc" as const }]
+        : query.sort === "followUp"
+          ? [{ followUpAt: "asc" as const }, { priority: "desc" as const }]
+          : [{ updatedAt: "desc" as const }];
     const applications = await this.prisma.application.findMany({
-      where: {
-        userId: user.id,
-        ...(query.status ? { status: query.status } : {}),
-        ...(query.q
-          ? {
-              OR: [
-                { title: { contains: query.q } },
-                { roleName: { contains: query.q } },
-                { note: { contains: query.q } },
-                { company: { is: { name: { contains: query.q } } } },
-              ],
-            }
-          : {}),
-      },
+      where,
       include: includeApplication,
-      orderBy: [{ updatedAt: "desc" }],
+      orderBy,
       take: Math.min(Number(query.take ?? 50), 100),
     });
 
-    return { applications: applications.map(serializeApplication) };
+    return { applications: applications.map(serializeApplication), metrics: buildApplicationMetrics(applications) };
   }
 
   async createApplication(user: AuthUser, input: CreateApplicationInput) {
@@ -406,13 +494,28 @@ export class CoreService {
         roleName,
         level: input.level,
         salaryK: input.salaryK ?? null,
+        salaryMinK: input.salaryMinK ?? input.salaryK ?? null,
+        salaryMaxK: input.salaryMaxK ?? input.salaryK ?? null,
         status: input.status,
+        stage: input.stage,
+        jobUrl: input.jobUrl?.trim() || null,
+        location: input.location?.trim() || null,
+        source: input.source?.trim() || null,
+        priority: input.priority,
+        archived: input.archived ?? false,
+        appliedAt: parseOptionalDate(input.appliedAt),
+        followUpAt: parseOptionalDate(input.followUpAt),
+        deadlineAt: parseOptionalDate(input.deadlineAt),
+        contactName: input.contactName?.trim() || null,
+        contactEmail: input.contactEmail?.trim() || null,
+        jdSnapshot: input.jdSnapshot?.trim() || jobTarget?.rawJd || null,
         interviewDate: parseOptionalDate(input.interviewDate),
         nextAction: input.nextAction?.trim() || "补齐 JD、简历和一次模拟面试。",
         note: input.note?.trim() || null,
       },
       include: includeApplication,
     });
+    await this.logApplicationActivity(user.id, application.id, "created", "创建求职机会", application.title);
 
     return { application: serializeApplication(application) };
   }
@@ -438,16 +541,200 @@ export class CoreService {
         ...(input.roleName !== undefined ? { roleName: input.roleName.trim() } : {}),
         ...(input.level !== undefined ? { level: input.level } : {}),
         ...(input.salaryK !== undefined ? { salaryK: input.salaryK ?? null } : {}),
+        ...(input.salaryMinK !== undefined ? { salaryMinK: input.salaryMinK ?? null } : {}),
+        ...(input.salaryMaxK !== undefined ? { salaryMaxK: input.salaryMaxK ?? null } : {}),
         ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.stage !== undefined ? { stage: input.stage } : {}),
+        ...(input.jobUrl !== undefined ? { jobUrl: input.jobUrl?.trim() || null } : {}),
+        ...(input.location !== undefined ? { location: input.location?.trim() || null } : {}),
+        ...(input.source !== undefined ? { source: input.source?.trim() || null } : {}),
+        ...(input.priority !== undefined ? { priority: input.priority } : {}),
+        ...(input.archived !== undefined ? { archived: input.archived } : {}),
+        ...(input.appliedAt !== undefined ? { appliedAt: parseOptionalDate(input.appliedAt) } : {}),
+        ...(input.followUpAt !== undefined ? { followUpAt: parseOptionalDate(input.followUpAt) } : {}),
+        ...(input.deadlineAt !== undefined ? { deadlineAt: parseOptionalDate(input.deadlineAt) } : {}),
+        ...(input.contactName !== undefined ? { contactName: input.contactName?.trim() || null } : {}),
+        ...(input.contactEmail !== undefined ? { contactEmail: input.contactEmail?.trim() || null } : {}),
+        ...(input.jdSnapshot !== undefined ? { jdSnapshot: input.jdSnapshot?.trim() || null } : {}),
         ...(input.interviewDate !== undefined ? { interviewDate: parseOptionalDate(input.interviewDate) } : {}),
         ...(input.progress !== undefined ? { progressJson: JSON.stringify(input.progress) } : {}),
+        ...(input.matchReport !== undefined ? { matchReportJson: JSON.stringify(input.matchReport ?? {}) } : {}),
         ...(input.nextAction !== undefined ? { nextAction: input.nextAction?.trim() || null } : {}),
         ...(input.note !== undefined ? { note: input.note?.trim() || null } : {}),
       },
       include: includeApplication,
     });
+    await this.logApplicationActivity(user.id, application.id, "updated", "更新求职机会", application.title);
 
     return { application: serializeApplication(application) };
+  }
+
+  async matchApplication(user: AuthUser, id: number) {
+    await this.ensureUser(user);
+    const application = await this.prisma.application.findFirst({
+      where: { id, userId: user.id },
+      include: includeApplication,
+    });
+    if (!application) {
+      throw new NotFoundException("求职机会不存在。");
+    }
+    const report = buildResumeJobMatchReport({
+      resumeText: application.resumeProfile?.rawText ?? "",
+      resumeParsedJson: application.resumeProfile?.parsedJson ?? "{}",
+      jdText: application.jdSnapshot || application.jobTarget?.rawJd || "",
+      roleName: application.roleName,
+    });
+    const updated = await this.prisma.application.update({
+      where: { id },
+      data: {
+        matchReportJson: JSON.stringify(report),
+        nextAction: report.missingKeywords.length ? `补齐 ${report.missingKeywords[0]?.keyword} 等关键词。` : "匹配不错，开始模拟面试。",
+      },
+      include: includeApplication,
+    });
+    await this.logApplicationActivity(user.id, id, "match", "刷新 JD 匹配报告", `匹配分 ${report.matchScore}`);
+
+    return {
+      application: serializeApplication(updated),
+      matchReport: report,
+      execution: {
+        model: "rules + GLM fallback",
+        usedFallback: true,
+        steps: ["抽取 JD 关键词", "扫描简历命中证据", "生成缺口建议和候选 bullet"],
+      },
+    };
+  }
+
+  async listResumeVersions(user: AuthUser, applicationId: number) {
+    await this.ensureUser(user);
+    const application = await this.prisma.application.findFirst({ where: { id: applicationId, userId: user.id } });
+    if (!application) {
+      throw new NotFoundException("求职机会不存在。");
+    }
+    const versions = await this.prisma.resumeVersion.findMany({
+      where: { applicationId, userId: user.id },
+      orderBy: [{ isPrimary: "desc" }, { updatedAt: "desc" }],
+    });
+
+    return { resumeVersions: versions.map(serializeResumeVersion) };
+  }
+
+  async createResumeVersion(user: AuthUser, applicationId: number, input: CreateResumeVersionInput) {
+    await this.ensureUser(user);
+    const application = await this.prisma.application.findFirst({
+      where: { id: applicationId, userId: user.id },
+      include: includeApplication,
+    });
+    if (!application) {
+      throw new NotFoundException("求职机会不存在。");
+    }
+    const resume = input.resumeProfileId
+      ? await this.prisma.resumeProfile.findFirst({ where: { id: input.resumeProfileId, userId: user.id } })
+      : application.resumeProfile;
+    const content = input.content?.trim() || resume?.rawText || "";
+    if (!content) {
+      throw new NotFoundException("没有可用于创建版本的简历内容。");
+    }
+    const existingCount = await this.prisma.resumeVersion.count({ where: { applicationId, userId: user.id } });
+    const report = buildResumeJobMatchReport({
+      resumeText: content,
+      resumeParsedJson: resume?.parsedJson ?? "{}",
+      jdText: application.jdSnapshot || application.jobTarget?.rawJd || "",
+      roleName: application.roleName,
+    });
+    const version = await this.prisma.resumeVersion.create({
+      data: {
+        userId: user.id,
+        applicationId,
+        resumeProfileId: resume?.id ?? null,
+        title: input.title?.trim() || `${application.roleName} 定制简历 v${existingCount + 1}`,
+        content,
+        blocksJson: JSON.stringify(buildResumeBlocks(content)),
+        matchReportJson: JSON.stringify(report),
+        suggestionJson: JSON.stringify({ suggestedBullets: report.suggestedBullets }),
+        isPrimary: existingCount === 0,
+      },
+    });
+    await this.logApplicationActivity(user.id, applicationId, "resume_version", "创建定制简历版本", version.title);
+
+    return { resumeVersion: serializeResumeVersion(version) };
+  }
+
+  async updateResumeVersion(user: AuthUser, id: number, input: UpdateResumeVersionInput) {
+    await this.ensureUser(user);
+    const existing = await this.prisma.resumeVersion.findFirst({ where: { id, userId: user.id } });
+    if (!existing) {
+      throw new NotFoundException("简历版本不存在。");
+    }
+    if (input.isPrimary) {
+      await this.prisma.resumeVersion.updateMany({
+        where: { userId: user.id, applicationId: existing.applicationId },
+        data: { isPrimary: false },
+      });
+    }
+    const content = input.content ?? existing.content;
+    const version = await this.prisma.resumeVersion.update({
+      where: { id },
+      data: {
+        ...(input.title !== undefined ? { title: input.title.trim() } : {}),
+        ...(input.content !== undefined ? { content, blocksJson: JSON.stringify(input.blocks ?? buildResumeBlocks(content)) } : {}),
+        ...(input.blocks !== undefined ? { blocksJson: JSON.stringify(input.blocks) } : {}),
+        ...(input.matchReport !== undefined ? { matchReportJson: JSON.stringify(input.matchReport ?? {}) } : {}),
+        ...(input.suggestions !== undefined ? { suggestionJson: JSON.stringify(input.suggestions) } : {}),
+        ...(input.isPrimary !== undefined ? { isPrimary: input.isPrimary } : {}),
+      },
+    });
+    await this.logApplicationActivity(user.id, version.applicationId, "resume_version", "更新简历版本", version.title);
+
+    return { resumeVersion: serializeResumeVersion(version) };
+  }
+
+  async generateResumeBullet(user: AuthUser, id: number, keyword: string) {
+    await this.ensureUser(user);
+    const version = await this.prisma.resumeVersion.findFirst({ where: { id, userId: user.id } });
+    if (!version) {
+      throw new NotFoundException("简历版本不存在。");
+    }
+    const bullet = `围绕 ${keyword} 补充一条项目经历：说明场景、个人动作、技术取舍和量化结果。`;
+    const suggestions = safeJsonParse<Record<string, unknown>>(version.suggestionJson, {});
+    const generatedBullets = Array.isArray(suggestions.generatedBullets) ? suggestions.generatedBullets : [];
+    const updated = await this.prisma.resumeVersion.update({
+      where: { id },
+      data: {
+        suggestionJson: JSON.stringify({
+          ...suggestions,
+          generatedBullets: [...generatedBullets, { keyword, bullet, reason: "根据 missing keyword 生成，需用户确认后手动使用。" }],
+        }),
+      },
+    });
+    await this.logApplicationActivity(user.id, version.applicationId, "resume_bullet", "生成候选 bullet", keyword);
+
+    return { bullet, resumeVersion: serializeResumeVersion(updated) };
+  }
+
+  async autoSelectResumeVersion(user: AuthUser, id: number) {
+    await this.ensureUser(user);
+    const version = await this.prisma.resumeVersion.findFirst({
+      where: { id, userId: user.id },
+      include: includeResumeVersion,
+    });
+    if (!version) {
+      throw new NotFoundException("简历版本不存在。");
+    }
+    const report = safeJsonParse<{ includedKeywords?: Array<{ keyword: string }>; missingKeywords?: Array<{ keyword: string }> }>(version.matchReportJson, {});
+    const important = new Set([...(report.includedKeywords ?? []), ...(report.missingKeywords ?? [])].map((item) => item.keyword.toLowerCase()));
+    const blocks = safeJsonParse<Array<{ id: string; type: string; title: string; content: string; enabled: boolean; keywords: string[] }>>(version.blocksJson, [])
+      .map((block) => ({
+        ...block,
+        enabled: block.type === "summary" || block.keywords.some((keyword) => important.has(keyword.toLowerCase())),
+      }));
+    const updated = await this.prisma.resumeVersion.update({
+      where: { id },
+      data: { blocksJson: JSON.stringify(blocks) },
+    });
+    await this.logApplicationActivity(user.id, version.applicationId, "auto_select", "按 JD 自动选择简历内容", version.title);
+
+    return { resumeVersion: serializeResumeVersion(updated) };
   }
 
   private async refreshApplicationNextAction(applicationId: number) {
@@ -466,6 +753,19 @@ export class CoreService {
         nextAction,
         progressJson: JSON.stringify(serialized.progress),
         status: application.status === "tracking" ? "preparing" : application.status,
+      },
+    });
+  }
+
+  private async logApplicationActivity(userId: string, applicationId: number, type: string, title: string, detail?: string, metadata?: Record<string, unknown>) {
+    await this.prisma.applicationActivity.create({
+      data: {
+        userId,
+        applicationId,
+        type,
+        title,
+        detail: detail ?? null,
+        metadataJson: JSON.stringify(metadata ?? {}),
       },
     });
   }
@@ -919,6 +1219,275 @@ export class CoreService {
       take: 50,
     });
     return { sessions: sessions.map(serializeInterviewSession) };
+  }
+
+  async startInterviewerSession(user: AuthUser, input: StartInterviewerSessionInput) {
+    await this.ensureUser(user);
+    const [resume, company] = await Promise.all([
+      input.resumeProfileId ? this.prisma.resumeProfile.findFirst({ where: { id: input.resumeProfileId, userId: user.id } }) : null,
+      this.findOrCreateCompany(input.targetCompanyName),
+    ]);
+    if (input.resumeProfileId && !resume) {
+      throw new NotFoundException("简历不存在。");
+    }
+    const resumeText = input.resumeText?.trim() || resume?.rawText || "";
+    const context = buildMockInterviewerContext({
+      resumeText,
+      parsedResumeJson: resume?.parsedJson,
+      jdText: input.jdText,
+      targetRole: input.targetRole,
+      seniority: input.seniority,
+      durationMinutes: input.durationMinutes,
+    });
+    let plan = buildMockInterviewerPlan(context);
+    const primaryTurns = buildMockPrimaryTurns(plan);
+    if (!primaryTurns.length) {
+      throw new NotFoundException("简历信息不足，无法生成面试问题。");
+    }
+    for (const turn of primaryTurns) {
+      plan = markMockPrimaryAsked(plan, turn.topicId);
+    }
+    const session = await this.prisma.interviewSession.create({
+      data: {
+        userId: user.id,
+        mode: "mixed",
+        roundType: "first_round",
+        deliveryMode: "text",
+        targetRole: context.targetRole,
+        targetCompanyId: company?.id ?? null,
+        resumeProfileId: resume?.id ?? null,
+        status: "active",
+        contextJson: JSON.stringify(context),
+        configJson: JSON.stringify({
+          sessionKind: "mock_interviewer",
+          answerVisibility: "toggle",
+          scoringTiming: "final_only",
+          inputMode: "text",
+        }),
+        planJson: JSON.stringify(plan),
+        expressionJson: JSON.stringify({ agentName: "mock-interviewer" }),
+        turns: {
+          create: primaryTurns.map((turn) => ({
+            order: turn.order,
+            question: turn.question,
+            questionSource: turn.questionSource,
+            turnType: turn.turnType,
+            intent: turn.intent,
+            idealAnswer: turn.idealAnswer,
+          })),
+        },
+      },
+      include: includeSession,
+    });
+    await this.logAgentRun(user.id, "mock-interviewer", "success", { durationMinutes: input.durationMinutes, seniority: input.seniority }, { sessionId: session.id, primaryQuestions: primaryTurns.length });
+
+    return { session: serializeInterviewSession(session) };
+  }
+
+  async answerInterviewerSession(user: AuthUser, sessionId: number, input: AnswerInterviewerSessionInput) {
+    await this.ensureUser(user);
+    const session = await this.prisma.interviewSession.findFirst({
+      where: { id: sessionId, userId: user.id },
+      include: includeSession,
+    });
+    if (!session) {
+      throw new NotFoundException("面试不存在。");
+    }
+    const config = safeJsonParse<{ sessionKind?: string }>(session.configJson, {});
+    if (config.sessionKind !== "mock_interviewer") {
+      throw new NotFoundException("这不是面试官 Agent 会话。");
+    }
+    const focusTurn = input.turnId ? session.turns.find((turn) => turn.id === input.turnId) ?? null : null;
+
+    if (input.mode === "discussion") {
+      const discussionTurn = await this.prisma.interviewTurn.create({
+        data: {
+          sessionId,
+          order: Math.max(...session.turns.map((turn) => turn.order), 0) + 1,
+          question: input.title?.trim() || summarizeMockDiscussionTitle(input.answer),
+          questionSource: "discussion",
+          turnType: "discussion",
+          parentTurnId: null,
+          intent: "自由讨论",
+          idealAnswer: "围绕自由讨论中的关键判断、事实依据、结果和复盘补足上下文。",
+          answer: input.answer.trim(),
+          transcriptSource: input.transcriptSource,
+          answerDurationSec: input.answerDurationSec,
+        },
+      });
+      const refreshedDiscussion = await this.prisma.interviewSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        include: includeSession,
+      });
+
+      return {
+        session: serializeInterviewSession(refreshedDiscussion),
+        answeredTurn: serializeInterviewTurnLoose(discussionTurn),
+        nextTurn: null,
+        shouldFinish: false,
+      };
+    }
+
+    if (!focusTurn) {
+      throw new NotFoundException("请先选择一个主问题或追问卡片。");
+    }
+    const answeredTurn = await this.prisma.interviewTurn.update({
+      where: { id: focusTurn.id },
+      data: {
+        answer: input.answer.trim(),
+        transcriptSource: input.transcriptSource,
+        answerDurationSec: input.answerDurationSec,
+      },
+    });
+    const fallbackPlan: MockInterviewerPlan = {
+      durationMinutes: 20,
+      turnBudget: 7,
+      primaryQuestionBudget: 5,
+      followUpBudget: 2,
+      askedPrimaryCount: 0,
+      askedFollowUpCount: 0,
+      requiredProjectDeepDive: true,
+      projectDeepDiveCovered: true,
+      jdRequiredQuestionTarget: 0,
+      jdRequiredQuestionCount: 0,
+      currentTopicId: null,
+      topics: [],
+    };
+    let plan = safeJsonParse<MockInterviewerPlan>(session.planJson, fallbackPlan);
+    const turns: MockTurnLike[] = session.turns.map((turn) => ({
+      id: turn.id,
+      order: turn.order,
+      question: turn.question,
+      questionSource: turn.questionSource,
+      turnType: normalizeMockTurnType(turn.turnType),
+      parentTurnId: turn.parentTurnId,
+      intent: turn.intent,
+      answer: turn.id === answeredTurn.id ? input.answer.trim() : turn.answer,
+      feedback: turn.feedback,
+      betterAnswer: turn.betterAnswer,
+      idealAnswer: turn.idealAnswer,
+    }));
+    const primaryCoveredCount = turns.filter((turn) => turn.turnType === "primary" && turn.answer?.trim()).length;
+    const shouldFinish = primaryCoveredCount >= plan.primaryQuestionBudget;
+    let nextTurn = null;
+    if (!shouldFinish && (focusTurn.turnType === "primary" || focusTurn.turnType === "followup")) {
+      const followUpQuestion = shouldAskMockFollowUp({
+        answer: input.answer,
+        plan,
+        turns,
+        currentTurn: {
+          ...focusTurn,
+          turnType: normalizeMockTurnType(focusTurn.turnType),
+          answer: input.answer.trim(),
+        },
+      });
+      if (followUpQuestion) {
+        plan = { ...plan, askedFollowUpCount: plan.askedFollowUpCount + 1 };
+        nextTurn = await this.prisma.interviewTurn.create({
+          data: {
+            sessionId,
+            order: Math.max(...session.turns.map((turn) => turn.order)) + 1,
+            question: followUpQuestion,
+            questionSource: focusTurn.questionSource,
+            turnType: "followup",
+            parentTurnId: focusTurn.turnType === "followup" ? (focusTurn.parentTurnId ?? focusTurn.id) : focusTurn.id,
+            intent: "根据候选人上一轮回答继续追问细节、指标和个人贡献。",
+            idealAnswer: "补充具体背景、个人动作、关键取舍、结果指标，以及这段经历和岗位要求的连接。",
+          },
+        });
+      }
+    }
+    await this.prisma.interviewSession.update({
+      where: { id: sessionId },
+      data: { planJson: JSON.stringify(plan) },
+    });
+    const refreshed = await this.prisma.interviewSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: includeSession,
+    });
+
+    return {
+      session: serializeInterviewSession(refreshed),
+      answeredTurn: serializeInterviewTurnLoose(answeredTurn),
+      nextTurn: nextTurn ? serializeInterviewTurnLoose(nextTurn) : null,
+      shouldFinish,
+    };
+  }
+
+  async finishInterviewerSession(user: AuthUser, sessionId: number) {
+    await this.ensureUser(user);
+    const session = await this.prisma.interviewSession.findFirst({
+      where: { id: sessionId, userId: user.id },
+      include: includeSession,
+    });
+    if (!session) {
+      throw new NotFoundException("面试不存在。");
+    }
+    const config = safeJsonParse<{ sessionKind?: string }>(session.configJson, {});
+    if (config.sessionKind !== "mock_interviewer") {
+      throw new NotFoundException("这不是面试官 Agent 会话。");
+    }
+    const context = safeJsonParse<MockInterviewerContext>(session.contextJson, emptyMockContext(session.targetRole));
+    const turns: MockTurnLike[] = session.turns.map((turn) => ({
+      id: turn.id,
+      order: turn.order,
+      question: turn.question,
+      questionSource: turn.questionSource,
+      turnType: normalizeMockTurnType(turn.turnType),
+      parentTurnId: turn.parentTurnId,
+      intent: turn.intent,
+      answer: turn.answer,
+      feedback: turn.feedback,
+      betterAnswer: turn.betterAnswer,
+      idealAnswer: turn.idealAnswer,
+    }));
+    const summary = finishMockInterviewerSession(turns, context);
+    await this.prisma.$transaction([
+      ...session.turns.filter((turn) => turn.answer).map((turn) => {
+        const review = reviewMockTurnAnswer({
+          id: turn.id,
+          order: turn.order,
+          question: turn.question,
+          questionSource: turn.questionSource,
+          turnType: normalizeMockTurnType(turn.turnType),
+          parentTurnId: turn.parentTurnId,
+          intent: turn.intent,
+          answer: turn.answer,
+          feedback: turn.feedback,
+          betterAnswer: turn.betterAnswer,
+          idealAnswer: turn.idealAnswer,
+        }, context);
+        return this.prisma.interviewTurn.update({
+          where: { id: turn.id },
+          data: {
+            feedback: review.feedback,
+            betterAnswer: review.betterAnswer,
+            scoreJson: JSON.stringify(review.dimensions),
+            reviewJson: JSON.stringify(review),
+          },
+        });
+      }),
+      this.prisma.interviewSession.update({
+        where: { id: sessionId },
+        data: {
+          status: "finished",
+          summary: summary.summary,
+          scoreJson: JSON.stringify({ overall: summary.overallScore, ...summary.dimensionAverages }),
+          expressionJson: JSON.stringify({
+            agentName: "mock-interviewer",
+            strengths: summary.strengths,
+            nextActions: summary.nextActions,
+          }),
+        },
+      }),
+    ]);
+    const refreshed = await this.prisma.interviewSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: includeSession,
+    });
+    await this.logAgentRun(user.id, "mock-interviewer", "success", { sessionId }, { overallScore: summary.overallScore });
+
+    return { session: serializeInterviewSession(refreshed), summary };
   }
 
   async startInterview(user: AuthUser, input: StartInterviewInput) {
@@ -1640,6 +2209,293 @@ function parseResumeText(rawText: string) {
   };
 }
 
+const mockDurationTurnBudget: Record<10 | 20 | 30 | 45, number> = { 10: 4, 20: 7, 30: 10, 45: 15 };
+const mockDimensionKeys = ["accuracy", "depth", "structure", "resumeGrounding", "roleRelevance", "clarity"] as const;
+
+function emptyMockContext(targetRole: string | null): MockInterviewerContext {
+  return {
+    resumeText: "",
+    parsedResume: { summary: "", skills: [], experiences: [], projects: [], followUpQuestions: [] },
+    jdText: null,
+    jdKeywords: [],
+    targetRole,
+    seniority: "mid",
+    durationMinutes: 20,
+  };
+}
+
+function buildMockInterviewerContext(input: {
+  resumeText: string;
+  parsedResumeJson?: string | null;
+  jdText?: string | null;
+  targetRole?: string | null;
+  seniority: MockSeniority;
+  durationMinutes: 10 | 20 | 30 | 45;
+}): MockInterviewerContext {
+  return {
+    resumeText: input.resumeText,
+    parsedResume: input.parsedResumeJson ? safeJsonParse(input.parsedResumeJson, parseResumeText(input.resumeText)) : parseResumeText(input.resumeText),
+    jdText: input.jdText?.trim() ? input.jdText.trim() : null,
+    jdKeywords: input.jdText?.trim() ? extractMockJdKeywords(input.jdText) : [],
+    targetRole: input.targetRole?.trim() || null,
+    seniority: input.seniority,
+    durationMinutes: input.durationMinutes,
+  };
+}
+
+function buildMockInterviewerPlan(context: MockInterviewerContext): MockInterviewerPlan {
+  const turnBudget = mockDurationTurnBudget[context.durationMinutes];
+  const primaryQuestionBudget = Math.max(3, Math.ceil(turnBudget * 0.6));
+  const followUpBudget = Math.max(1, turnBudget - primaryQuestionBudget);
+  const topics = [
+    ...context.parsedResume.projects.slice(0, 3).map((project, index) => ({
+      id: `project-${index + 1}`,
+      title: project,
+      source: "resume" as const,
+      kind: "project" as const,
+      intent: "考察项目背景、个人贡献、技术方案与量化结果。",
+      question: `请你完整讲一下 ${project}，重点说背景、目标、你的职责、核心方案、最难的问题和最后结果。`,
+      idealAnswer: `先说明 ${project} 的业务背景和目标，再讲你负责的核心模块、为什么这么设计、如何解决难点，最后用结果指标和复盘收尾。`,
+      asked: false,
+      required: index === 0 || context.seniority !== "junior",
+    })),
+    ...context.parsedResume.skills.slice(0, 3).map((skill, index) => ({
+      id: `skill-${index + 1}`,
+      title: skill,
+      source: "resume" as const,
+      kind: "skill" as const,
+      intent: "考察技术原理是否能和真实项目场景绑定。",
+      question: `你在真实项目里是怎么用 ${skill} 的？请讲一个场景、为什么需要它、怎么落地、踩过什么坑。`,
+      idealAnswer: `不要只解释定义，要结合真实项目说明 ${skill} 的使用场景、选型原因、实际收益和限制。`,
+      asked: false,
+      required: index === 0,
+    })),
+    ...context.jdKeywords.slice(0, 3).map((keyword, index) => ({
+      id: `jd-${index + 1}`,
+      title: keyword,
+      source: "jd" as const,
+      kind: "jd" as const,
+      intent: "考察岗位必备项和候选人经历是否对齐。",
+      question: `这个岗位强调 ${keyword}，你过往最能证明自己具备这项能力的经历是什么？`,
+      idealAnswer: `先承接岗位要求，再给出一段真实经历，说明场景、动作、结果，并解释为什么这能证明你胜任 ${keyword}。`,
+      asked: false,
+      required: true,
+    })),
+    {
+      id: "general-role-fit",
+      title: "岗位匹配",
+      source: "general" as const,
+      kind: "behavior" as const,
+      intent: "考察岗位动机和上手策略。",
+      question: `为什么你适合这个 ${context.targetRole || "目标岗位"} 岗位？如果你入职，前 30 天会优先解决什么问题？`,
+      idealAnswer: "回答要同时包含岗位匹配证据、过往可迁移经历、短期上手路径和优先级判断。",
+      asked: false,
+      required: true,
+    },
+  ].slice(0, Math.max(primaryQuestionBudget + 1, 6));
+  return {
+    durationMinutes: context.durationMinutes,
+    turnBudget,
+    primaryQuestionBudget,
+    followUpBudget,
+    askedPrimaryCount: 0,
+    askedFollowUpCount: 0,
+    requiredProjectDeepDive: true,
+    projectDeepDiveCovered: false,
+    jdRequiredQuestionTarget: context.jdKeywords.length ? Math.max(1, Math.ceil(primaryQuestionBudget * 0.3)) : 0,
+    jdRequiredQuestionCount: 0,
+    currentTopicId: topics[0]?.id ?? null,
+    topics,
+  };
+}
+
+function pickMockNextPrimaryTopic(plan: MockInterviewerPlan) {
+  const unasked = plan.topics.filter((topic) => !topic.asked);
+  if (!unasked.length) return null;
+  if (!plan.projectDeepDiveCovered) {
+    const project = unasked.find((topic) => topic.kind === "project");
+    if (project) return project;
+  }
+  if (plan.jdRequiredQuestionTarget > plan.jdRequiredQuestionCount) {
+    const jdTopic = unasked.find((topic) => topic.source === "jd");
+    if (jdTopic) return jdTopic;
+  }
+  return unasked.find((topic) => topic.required) ?? unasked[0] ?? null;
+}
+
+function buildMockFirstTurn(plan: MockInterviewerPlan) {
+  return buildMockNextPrimaryTurn(plan);
+}
+
+function buildMockPrimaryTurns(plan: MockInterviewerPlan) {
+  return plan.topics
+    .slice(0, plan.primaryQuestionBudget)
+    .map((topic, index) => ({
+      topicId: topic.id,
+      order: index + 1,
+      question: topic.question,
+      questionSource: topic.source,
+      turnType: "primary" as const,
+      intent: topic.intent,
+      idealAnswer: topic.idealAnswer,
+    }));
+}
+
+function buildMockNextPrimaryTurn(plan: MockInterviewerPlan) {
+  const topic = pickMockNextPrimaryTopic(plan);
+  if (!topic) return null;
+  return {
+    topicId: topic.id,
+    question: topic.question,
+    questionSource: topic.source,
+    turnType: "primary" as const,
+    intent: topic.intent,
+    idealAnswer: topic.idealAnswer,
+  };
+}
+
+function markMockPrimaryAsked(plan: MockInterviewerPlan, topicId: string): MockInterviewerPlan {
+  const topics = plan.topics.map((topic) => topic.id === topicId ? { ...topic, asked: true } : topic);
+  const askedTopic = topics.find((topic) => topic.id === topicId);
+  return {
+    ...plan,
+    topics,
+    currentTopicId: topicId,
+    askedPrimaryCount: plan.askedPrimaryCount + 1,
+    projectDeepDiveCovered: plan.projectDeepDiveCovered || askedTopic?.kind === "project",
+    jdRequiredQuestionCount: plan.jdRequiredQuestionCount + (askedTopic?.source === "jd" ? 1 : 0),
+  };
+}
+
+function shouldAskMockFollowUp(input: { answer: string; plan: MockInterviewerPlan; turns: MockTurnLike[]; currentTurn: MockTurnLike }) {
+  if (input.plan.askedFollowUpCount >= input.plan.followUpBudget) return null;
+  const parentId = input.currentTurn.parentTurnId ?? input.currentTurn.id;
+  if (input.turns.filter((turn) => turn.parentTurnId === parentId && turn.turnType === "followup").length >= 2) return null;
+  const answer = input.answer.trim();
+  if (answer.length < 90) return "回答偏短，细节还不够。请你把背景、你的动作、结果和数据指标补充完整。";
+  if (/提升|优化|增长|降低|节省/.test(answer) && !/\d+%|\d+ms|\d+倍|\d+个/.test(answer)) return "这件事最后的数据结果是什么？有没有具体指标或前后对比？";
+  if (/方案|设计|架构|实现/.test(answer)) return "为什么选这个方案？当时有没有考虑替代方案，最后为什么没选？";
+  if (/我参与|一起|团队/.test(answer) && !/我负责|我主导|我设计|我推进/.test(answer)) return "在团队合作里你个人最关键的贡献是什么？如果没有你，这件事最可能卡在哪？";
+  if (input.currentTurn.questionSource === "jd" && !/岗位|业务|目标|要求/.test(answer)) return "这道题和岗位要求的连接还不够，请你明确讲一下这段经历为什么能证明你匹配这个岗位。";
+  return null;
+}
+
+function reviewMockTurnAnswer(turn: MockTurnLike, context: MockInterviewerContext) {
+  const answer = turn.answer ?? "";
+  const hasStructure = /背景|目标|方案|结果|复盘|首先|其次|最后|STAR/i.test(answer);
+  const hasMetrics = /\d+%|\d+ms|\d+倍|\d+个/.test(answer);
+  const hasOwnership = /我负责|我主导|我设计|我推进|我排查|我优化/.test(answer);
+  const hasTradeoff = /取舍|权衡|风险|成本|复杂度/.test(answer);
+  const hasRoleLink = context.targetRole ? /岗位|业务|要求/.test(answer) : true;
+  const dimensions = {
+    accuracy: hasOwnership ? 4 : 3,
+    depth: Math.min(5, 2 + (hasMetrics ? 1 : 0) + (hasTradeoff ? 1 : 0) + (answer.length > 180 ? 1 : 0)),
+    structure: hasStructure ? 4 : 2,
+    resumeGrounding: hasOwnership ? 4 : 2,
+    roleRelevance: hasRoleLink ? 4 : 2,
+    clarity: Math.min(5, (answer.length > 60 ? 4 : 2) + (hasStructure ? 1 : 0)),
+  };
+  const values = mockDimensionKeys.map((key) => dimensions[key]);
+  const missedPoints = [
+    !hasMetrics ? "缺少可验证的结果指标。" : "",
+    !hasOwnership ? "个人贡献不够清晰。" : "",
+    !hasTradeoff ? "方案取舍还没有展开。" : "",
+    context.targetRole && !hasRoleLink ? "和目标岗位的关联表达还不够。" : "",
+    !hasStructure ? "表达结构可以更清晰。" : "",
+  ].filter(Boolean);
+  return {
+    dimensions,
+    overallScore: Math.round(values.reduce((sum, value) => sum + value, 0) / values.length * 20),
+    feedback: answer.length > 120 ? "回答已经有一定信息量，下一步重点是把量化指标、个人贡献和方案取舍再讲实。" : "回答偏短，建议补全背景、动作、结果和复盘。",
+    betterAnswer: turn.idealAnswer || "建议按 背景 -> 目标 -> 我的职责 -> 方案 -> 难点取舍 -> 结果 -> 复盘 的顺序重答。",
+    missedPoints,
+  };
+}
+
+function summarizeMockDiscussionTitle(answer: string) {
+  const compact = answer
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean) ?? "自由讨论";
+  return compact.length > 28 ? `${compact.slice(0, 28)}...` : compact;
+}
+
+function finishMockInterviewerSession(turns: MockTurnLike[], context: MockInterviewerContext) {
+  const reviewed = turns.filter((turn) => turn.answer).map((turn) => ({ turn, review: reviewMockTurnAnswer(turn, context) }));
+  const primaryTurns = turns.filter((turn) => turn.turnType === "primary");
+  const discussionTurns = turns.filter((turn) => turn.turnType === "discussion" && turn.answer);
+  const dimensionAverages = mockDimensionKeys.reduce<Record<(typeof mockDimensionKeys)[number], number>>((acc, key) => {
+    const values = reviewed.map((item) => item.review.dimensions[key]);
+    acc[key] = values.length ? Number((values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1)) : 0;
+    return acc;
+  }, { accuracy: 0, depth: 0, structure: 0, resumeGrounding: 0, roleRelevance: 0, clarity: 0 });
+  const overallScore = reviewed.length ? Math.round(reviewed.reduce((sum, item) => sum + item.review.overallScore, 0) / reviewed.length) : 0;
+  return {
+    overallScore,
+    dimensionAverages,
+    summary: overallScore >= 80 ? "这轮面试表现整体扎实，项目表达和岗位匹配度不错。" : "这轮面试暴露出一些表达和深挖薄弱点，建议围绕低分题再练一轮。",
+    strengths: [
+      dimensionAverages.resumeGrounding >= 4 ? "项目经历和个人贡献连接较好。" : "",
+      dimensionAverages.structure >= 4 ? "表达结构比较清晰。" : "",
+      dimensionAverages.depth >= 4 ? "能展开技术细节和取舍。" : "",
+    ].filter(Boolean),
+    nextActions: [
+      dimensionAverages.depth < 3.5 ? "补 3 道项目深挖题，把方案取舍和技术风险讲清楚。" : "",
+      dimensionAverages.roleRelevance < 3.5 ? "把每个核心项目补一段“为什么这能证明我适合岗位”的表达。" : "",
+      dimensionAverages.clarity < 3.5 ? "按统一结构重写 2 道核心题，练到 2 分钟内讲清楚。" : "",
+      "把最低分的 2 道题整理成复盘卡，下次面试前先复述。",
+    ].filter(Boolean),
+    turns: reviewed.map(({ turn, review }) => ({
+      turnId: turn.id,
+      order: turn.order,
+      question: turn.question,
+      answer: turn.answer ?? null,
+      score: review.overallScore,
+      feedback: review.feedback,
+      idealAnswer: turn.idealAnswer || review.betterAnswer,
+      missedPoints: review.missedPoints,
+    })),
+    questionReviews: primaryTurns
+      .map((turn) => {
+        const relatedFollowUps = turns.filter((item) => item.parentTurnId === turn.id && item.turnType === "followup");
+        const mergedAnswer = [turn.answer, ...relatedFollowUps.map((item) => item.answer)].filter(Boolean).join("\n");
+        if (!mergedAnswer.trim()) return null;
+        const review = reviewMockTurnAnswer({ ...turn, answer: mergedAnswer }, context);
+        return {
+          turnId: turn.id,
+          order: turn.order,
+          question: turn.question,
+          score: review.overallScore,
+          feedback: review.feedback,
+          idealAnswer: turn.idealAnswer || review.betterAnswer,
+          missedPoints: review.missedPoints,
+          answers: [turn.answer, ...relatedFollowUps.map((item) => item.answer)].filter((value): value is string => Boolean(value)),
+          followUps: relatedFollowUps.map((item) => item.question),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    discussionReviews: discussionTurns.map((turn) => {
+      const review = reviewMockTurnAnswer(turn, context);
+      return {
+        turnId: turn.id,
+        order: turn.order,
+        question: turn.question,
+        score: review.overallScore,
+        feedback: review.feedback,
+        idealAnswer: turn.idealAnswer || review.betterAnswer,
+        missedPoints: review.missedPoints,
+        answers: turn.answer ? [turn.answer] : [],
+      };
+    }),
+  };
+}
+
+function extractMockJdKeywords(jdText: string) {
+  const pool = ["React", "TypeScript", "JavaScript", "Node.js", "Vue", "性能优化", "系统设计", "高并发", "微服务", "数据库", "Redis", "Kafka", "监控", "稳定性", "测试", "CI/CD", "云原生", "LLM", "Agent", "RAG", "协作", "沟通"];
+  const lower = jdText.toLowerCase();
+  return [...new Set(pool.filter((keyword) => lower.includes(keyword.toLowerCase())))].slice(0, 8);
+}
+
 function parseJdText(rawJd: string) {
   const lines = nonEmptyLines(rawJd);
   return {
@@ -1927,6 +2783,125 @@ function buildHighFrequencyQuestions(reports: Array<{ rounds: Array<{ roundType:
     .map(([question, meta]) => ({ question, count: meta.count, roundType: meta.roundType }));
 }
 
+function buildApplicationMetrics(applications: Array<{
+  archived: boolean;
+  stage: string;
+  matchReportJson: string;
+}>) {
+  const byStage = applications.reduce<Record<string, number>>((acc, application) => {
+    acc[application.stage] = (acc[application.stage] ?? 0) + 1;
+    return acc;
+  }, {});
+  const scores = applications
+    .map((application) => safeJsonParse<{ matchScore?: number }>(application.matchReportJson, {}).matchScore)
+    .filter((score): score is number => typeof score === "number" && Number.isFinite(score));
+
+  return {
+    total: applications.length,
+    active: applications.filter((application) => !application.archived).length,
+    archived: applications.filter((application) => application.archived).length,
+    byStage,
+    averageMatchScore: scores.length ? Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length) : 0,
+  };
+}
+
+function buildResumeJobMatchReport(input: { resumeText: string; resumeParsedJson: string; jdText: string; roleName: string }) {
+  const resumeText = input.resumeText || "";
+  const jdText = input.jdText || "";
+  const resumeParsed = safeJsonParse<{ skills?: string[]; projects?: string[]; experiences?: string[] }>(input.resumeParsedJson, {});
+  const keywords = extractJdKeywords(jdText, input.roleName);
+  const resumeSearchText = [resumeText, ...(resumeParsed.skills ?? []), ...(resumeParsed.projects ?? []), ...(resumeParsed.experiences ?? [])].join("\n").toLowerCase();
+  const items = keywords.map((item) => {
+    const found = resumeSearchText.includes(item.keyword.toLowerCase());
+    const evidenceQuote = found ? findEvidenceQuote(resumeText, item.keyword) : "";
+    return {
+      ...item,
+      found,
+      evidence: found
+        ? [{
+            sourceId: null,
+            chunkId: null,
+            quote: evidenceQuote || item.keyword,
+            reason: `简历中已出现 ${item.keyword}。`,
+          }]
+        : [],
+      suggestion: found
+        ? "保留该关键词，并在项目 bullet 中补充量化结果。"
+        : `建议在技能或项目经历中补充 ${item.keyword}，但必须基于真实经历。`,
+    };
+  });
+  const requiredKeywords = items.filter((item) => item.required);
+  const includedKeywords = items.filter((item) => item.found);
+  const missingKeywords = items.filter((item) => !item.found);
+  const requiredFound = requiredKeywords.filter((item) => item.found).length;
+  const matchScore = items.length
+    ? Math.round((includedKeywords.length / items.length) * 55 + (requiredKeywords.length ? (requiredFound / requiredKeywords.length) * 35 : 20) + Math.min(10, resumeText.length / 400))
+    : 0;
+  const suggestedBullets = missingKeywords.slice(0, 5).map((item) => ({
+    keyword: item.keyword,
+    bullet: `围绕 ${item.keyword} 补充一条经历：说明你在项目中如何使用它解决问题，并给出结果指标。`,
+    reason: item.required ? "JD 必备项缺失，建议优先补齐。" : "JD 加分项缺失，可以作为增强项。",
+  }));
+
+  return {
+    matchScore: Math.max(0, Math.min(100, matchScore)),
+    includedKeywords,
+    missingKeywords,
+    requiredKeywords,
+    suggestedBullets,
+    summary: missingKeywords.length
+      ? `已命中 ${includedKeywords.length}/${items.length} 个关键词，优先补齐 ${missingKeywords.slice(0, 3).map((item) => item.keyword).join("、")}。`
+      : "JD 关键词覆盖较好，可以进入模拟面试和表达打磨。",
+    usedFallback: true,
+  };
+}
+
+function extractJdKeywords(jdText: string, roleName: string) {
+  const technical = [
+    "JavaScript", "TypeScript", "React", "Vue", "Node.js", "Java", "Go", "Python", "MySQL", "PostgreSQL",
+    "Redis", "Kafka", "Docker", "Kubernetes", "微服务", "分布式", "高并发", "系统设计", "RAG", "LLM", "Agent", "LangGraph",
+    "Prompt", "可观测性", "性能优化", "稳定性", "CI/CD", "云原生",
+  ];
+  const soft = ["沟通", "协作", "owner", "推动", "项目管理", "业务理解", "跨团队", "文档"];
+  const action = ["设计", "搭建", "优化", "重构", "排查", "落地", "负责", "建设"];
+  const text = `${roleName}\n${jdText}`.toLowerCase();
+  const picked = [
+    ...technical.filter((keyword) => text.includes(keyword.toLowerCase())).map((keyword) => ({ keyword, category: "hard_skill", required: true })),
+    ...soft.filter((keyword) => text.includes(keyword.toLowerCase())).map((keyword) => ({ keyword, category: "soft_skill", required: false })),
+    ...action.filter((keyword) => text.includes(keyword.toLowerCase())).map((keyword) => ({ keyword, category: "responsibility", required: false })),
+  ];
+  const fallback = roleName.split(/[\\s/｜|,，、]+/).filter((item) => item.length >= 2).slice(0, 4).map((keyword) => ({
+    keyword,
+    category: "role",
+    required: true,
+  }));
+  const unique = new Map<string, { keyword: string; category: string; required: boolean }>();
+  [...picked, ...fallback].forEach((item) => unique.set(item.keyword.toLowerCase(), item));
+  return [...unique.values()].slice(0, 28);
+}
+
+function findEvidenceQuote(text: string, keyword: string) {
+  const lines = nonEmptyLines(text);
+  return lines.find((line) => line.toLowerCase().includes(keyword.toLowerCase()))?.slice(0, 180) ?? "";
+}
+
+function buildResumeBlocks(content: string) {
+  const lines = nonEmptyLines(content);
+  const blocks = lines.length ? lines : [content.trim()];
+  return blocks.slice(0, 80).map((line, index) => ({
+    id: `block-${index + 1}`,
+    type: index === 0 ? "summary" : /项目|系统|平台|服务/.test(line) ? "project" : /技能|熟悉|掌握/.test(line) ? "skills" : "experience",
+    title: line.slice(0, 28),
+    content: line,
+    enabled: true,
+    keywords: extractBlockKeywords(line),
+  }));
+}
+
+function extractBlockKeywords(text: string) {
+  return extractJdKeywords(text, "").map((item) => item.keyword).slice(0, 8);
+}
+
 function splitSourceChunks(content: string) {
   const paragraphs = content.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean);
   const chunks: string[] = [];
@@ -1978,24 +2953,42 @@ function buildAgentFallbackOutput(input: {
     chunks?: Array<{ id: number; content: string }>;
   }>;
 }) {
-  const sourceSnippets = input.sources.flatMap((source) =>
-    (source.chunks ?? []).slice(0, 2).map((chunk) => ({
-      sourceId: source.id,
-      chunkId: chunk.id,
-      quote: chunk.content.slice(0, 120),
-      reason: `来自${source.title}，用于支撑 ${input.agentName} 的输出。`,
-    })),
-  );
+  const githubSources = input.sources.filter((source) => source.sourceType === "github");
+  const nonGithubSources = input.sources.filter((source) => source.sourceType !== "github");
+  const sourceSnippets = buildAgentEvidenceSnippets(input.agentName, input.sources);
+  const githubSignals = githubSources
+    .map((source) => source.chunks?.[0]?.content || source.title)
+    .filter(Boolean)
+    .slice(0, 3);
+  const recommendations = buildAgentRecommendations(input.agentName, {
+    githubSignals,
+    githubCount: githubSources.length,
+    sourceCount: input.sources.length,
+  });
+  const specializedOutput = buildSpecializedAgentOutput({
+    agentName: input.agentName,
+    application: input.application as Record<string, unknown> | null,
+    input: input.input,
+    githubSignals,
+    recommendations,
+  });
   const output = {
-    title: `${input.agentName} 运行结果`,
+    title: specializedOutput.title,
     summary: input.sources.length
-      ? `已基于 ${input.sources.length} 份来源生成一版可编辑草稿。`
-      : "当前没有绑定来源，已生成一版基于输入的可编辑草稿。",
-    recommendations: [
-      "先确认目标岗位、级别和 JD 是否完整。",
-      "把输出中的关键结论绑定到简历、JD 或面经来源。",
-      "下一步完成一次模拟面试，并把低分点回流为复盘行动。",
-    ],
+      ? githubSources.length
+        ? `${specializedOutput.summary} 当前共引用 ${input.sources.length} 份来源，其中包含 ${githubSources.length} 份 GitHub 趋势/研究材料。`
+        : `${specializedOutput.summary} 当前共引用 ${input.sources.length} 份来源。`
+      : `${specializedOutput.summary} 当前没有绑定来源，结果更偏向 AI 推断草稿。`,
+    recommendations: specializedOutput.recommendations,
+    githubSignals,
+    sourceMix: {
+      github: githubSources.length,
+      other: nonGithubSources.length,
+    },
+    highlights: specializedOutput.highlights,
+    risks: specializedOutput.risks,
+    nextActions: specializedOutput.nextActions,
+    generatedArtifacts: specializedOutput.generatedArtifacts,
     application: input.application,
     input: input.input,
   };
@@ -2005,11 +2998,212 @@ function buildAgentFallbackOutput(input: {
     evidence: sourceSnippets,
     steps: [
       "读取 Agent 配置和输入。",
-      input.sources.length ? "加载并引用来源文档分块。" : "未发现来源文档，标记为 AI 推断草稿。",
+      input.sources.length
+        ? githubSources.length
+          ? "已加载来源文档分块，并识别出 GitHub 趋势/研究材料。"
+          : "加载并引用来源文档分块。"
+        : "未发现来源文档，标记为 AI 推断草稿。",
       "生成统一 Agent 输出并写入运行日志。",
     ],
     usedFallback: true,
   };
+}
+
+function buildSpecializedAgentOutput(input: {
+  agentName: string;
+  application: Record<string, unknown> | null;
+  input: Record<string, unknown>;
+  githubSignals: string[];
+  recommendations: string[];
+}) {
+  const roleName = typeof input.input.roleName === "string" ? input.input.roleName : "目标岗位";
+  const level = typeof input.input.level === "string" ? input.input.level : "当前级别";
+  const nextAction = input.application && typeof input.application.nextAction === "string" ? input.application.nextAction : null;
+
+  if (input.agentName === "application-match") {
+    const jdSnapshot = input.application && typeof input.application.jdSnapshot === "string" ? input.application.jdSnapshot : "";
+    const keywordHints = extractJdKeywords(jdSnapshot || roleName, roleName).slice(0, 6).map((item) => item.keyword);
+    return {
+      title: "求职机会匹配 Agent 草稿",
+      summary: `这版结果会优先帮助你把 ${roleName} 的 JD 匹配、项目表达和外部开源判断连起来。`,
+      recommendations: input.recommendations,
+      highlights: [
+        `先围绕 ${roleName} 的核心职责，补齐最能证明匹配度的经历和结果数据。`,
+        keywordHints.length ? `当前优先关注的 JD 关键词有：${keywordHints.join("、")}。` : "",
+        input.githubSignals[0] ? `可以引用一条 GitHub 信号，说明你对行业方向和开源实现有持续跟踪。` : `优先补充一段你对岗位方向的判断，而不是只罗列经历。`,
+      ].filter(Boolean),
+      risks: [
+        "如果只讲项目经历但不连回 JD 关键词，匹配分会显得虚。",
+        input.githubSignals.length ? "如果引用 GitHub 趋势，记得讲成你的判断，不要像背榜单。" : "目前没有明显的外部技术趋势材料支撑。",
+      ],
+      nextActions: [
+        "重写 1 到 2 条最关键的项目 bullet。",
+        "把一条 GitHub/开源观察翻译成岗位相关判断。",
+        nextAction || "补齐下一轮最关键的准备动作。",
+      ],
+      generatedArtifacts: [
+        "JD 缺口解读",
+        "岗位匹配建议",
+        "可补充的项目表达方向",
+      ],
+    };
+  }
+
+  if (input.agentName === "resume-tailor") {
+    const resumeTitle = input.application?.resumeProfile && typeof input.application.resumeProfile === "object" && input.application.resumeProfile && "title" in input.application.resumeProfile
+      ? String((input.application.resumeProfile as Record<string, unknown>).title ?? "当前简历")
+      : "当前简历";
+    return {
+      title: "简历定制 Agent 草稿",
+      summary: `这版结果会优先帮助你把 ${resumeTitle} 改得更像一个适配 ${roleName} / ${level} 的版本。`,
+      recommendations: input.recommendations,
+      highlights: [
+        "优先保留最能证明岗位能力的内容块，弱相关经历尽量收短。",
+        "先改 Summary、最近一段经历和主讲项目，这三处最影响第一眼判断。",
+        input.githubSignals[0] ? "可以在项目里补一条你对开源实现、Agent 能力或技术路线的理解。" : "每个重点项目都要有量化结果和个人贡献。",
+      ],
+      risks: [
+        "如果项目描述只有职责没有结果，简历会显得平。",
+        "如果把开源趋势写成空泛热词，会降低可信度。",
+      ],
+      nextActions: [
+        "先改 Summary 和最上面的 2 条经历。",
+        "给主讲项目补 1 条量化结果、1 条技术取舍、1 条业务结果。",
+        "把外部趋势判断落在具体项目场景里。",
+      ],
+      generatedArtifacts: [
+        "简历改写方向",
+        "项目 bullet 提示",
+        "外部趋势可引用点",
+      ],
+    };
+  }
+
+  if (input.agentName === "candidate-prep") {
+    return {
+      title: "候选人准备 Agent 草稿",
+      summary: `这版结果会优先帮助你把 ${roleName} 面试里的项目表达、追问应对和开源判断准备得更顺。`,
+      recommendations: input.recommendations,
+      highlights: [
+        "优先准备 1 个主讲项目和 1 段 90 秒自我介绍。",
+        input.githubSignals[0] ? "当前已经有 GitHub 趋势材料，可以把它转成你对行业/方案的判断。": "如果能补一条外部开源观察，会让表达更立体。",
+      ],
+      risks: [
+        "如果只会复述项目过程，不讲为什么这样做，容易被追问击穿。",
+        "如果引用开源趋势但没有自己的判断，会显得像背材料。",
+      ],
+      nextActions: [
+        "练一遍主讲项目的背景-目标-方案-结果-复盘。",
+        "挑一条 GitHub 观察，写成你自己的技术判断。",
+        "做一次模拟，把低分点回流成复盘动作。",
+      ],
+      generatedArtifacts: [
+        "准备面板草稿",
+        "项目表达方向",
+        "外部趋势引用建议",
+      ],
+    };
+  }
+
+  return {
+    title: `${input.agentName} 运行结果`,
+    summary: "当前已按统一协议生成一版可编辑草稿。",
+    recommendations: input.recommendations,
+    highlights: ["结果已参考 application 和来源材料。"],
+    risks: ["当前仍以 fallback 规则为主，建议继续校对。"],
+    nextActions: [nextAction || "继续下一步准备动作。"],
+    generatedArtifacts: ["统一 Agent 输出"],
+  };
+}
+
+function buildAgentEvidenceSnippets(
+  agentName: string,
+  sources: Array<{
+    id: number;
+    title: string;
+    sourceType: string;
+    chunks?: Array<{ id: number; content: string }>;
+  }>,
+) {
+  return sources.flatMap((source) =>
+    (source.chunks ?? []).slice(0, 2).map((chunk) => ({
+      sourceId: source.id,
+      chunkId: chunk.id,
+      quote: chunk.content.slice(0, 120),
+      reason: buildEvidenceReason(agentName, source.title, source.sourceType),
+    })),
+  );
+}
+
+function buildEvidenceReason(agentName: string, title: string, sourceType: string) {
+  if (agentName === "application-match") {
+    return sourceType === "github"
+      ? `来自${title}，用于支撑岗位匹配里的外部技术趋势判断。`
+      : `来自${title}，用于支撑 JD 匹配和经历证明。`;
+  }
+
+  if (agentName === "resume-tailor") {
+    return sourceType === "github"
+      ? `来自${title}，用于补充简历里的开源/行业理解表达。`
+      : `来自${title}，用于支撑简历内容取舍和 bullet 改写。`;
+  }
+
+  if (agentName === "candidate-prep") {
+    return sourceType === "github"
+      ? `来自${title}，用于补充候选人的外部开源判断和项目对比视角。`
+      : `来自${title}，用于支撑候选人准备材料。`;
+  }
+
+  return `来自${title}，用于支撑 ${agentName} 的输出。`;
+}
+
+function buildAgentRecommendations(
+  agentName: string,
+  input: { githubSignals: string[]; githubCount: number; sourceCount: number },
+) {
+  const githubHints = input.githubSignals.map((signal) => `结合 GitHub 信号：${signal.slice(0, 80)}。`);
+
+  if (agentName === "application-match") {
+    return [
+      "先确认目标岗位、级别和 JD 是否完整。",
+      input.githubCount
+        ? "把 JD 关键词和 GitHub 研究材料连起来，补一段你对同类开源实现或行业方向的判断。"
+        : "把输出中的关键结论绑定到简历、JD 或面经来源。",
+      "优先补齐最影响匹配分的缺口，再准备一段项目落地和技术取舍表达。",
+      ...githubHints.slice(0, 2),
+    ];
+  }
+
+  if (agentName === "resume-tailor") {
+    return [
+      "优先保留最能证明岗位匹配度的经历块。",
+      input.githubCount
+        ? "在项目 bullet 里加入对开源实现、竞品能力或行业趋势的理解，提升 AI/Agent 岗表达厚度。"
+        : "把输出中的关键结论绑定到简历、JD 或面经来源。",
+      "每个项目至少补一条量化结果和一条技术取舍。",
+      ...githubHints.slice(0, 2),
+    ];
+  }
+
+  if (agentName === "candidate-prep") {
+    return [
+      "先确认目标岗位、级别和 JD 是否完整。",
+      input.githubCount
+        ? "把 GitHub 研究材料转成一段你对开源方案、产品机会或技术路线的判断。"
+        : "把输出中的关键结论绑定到简历、JD 或面经来源。",
+      "下一步完成一次模拟面试，并把低分点回流为复盘行动。",
+      ...githubHints.slice(0, 2),
+    ];
+  }
+
+  return [
+    "先确认目标岗位、级别和 JD 是否完整。",
+    input.githubCount
+      ? "把输出中的关键结论同时绑定到简历/JD 和 GitHub 趋势来源，减少纯推断内容。"
+      : "把输出中的关键结论绑定到简历、JD 或面经来源。",
+    "下一步完成一次模拟面试，并把低分点回流为复盘行动。",
+    ...githubHints.slice(0, 2),
+  ];
 }
 
 function mapExperienceRoundType(roundType?: string | null) {
@@ -2050,9 +3244,14 @@ function serializeInterviewTurnLoose(turn: {
   order: number;
   question: string;
   questionSource: string | null;
+  turnType?: string | null;
+  parentTurnId?: number | null;
+  intent?: string | null;
   answer: string | null;
   feedback: string | null;
   betterAnswer: string | null;
+  idealAnswer?: string | null;
+  reviewJson?: string | null;
   transcriptSource: string;
   answerDurationSec: number | null;
   expressionJson: string;
@@ -2066,13 +3265,18 @@ function serializeInterviewTurnLoose(turn: {
     order: turn.order,
     question: turn.question,
     questionSource: turn.questionSource,
+    turnType: turn.turnType ?? null,
+    parentTurnId: turn.parentTurnId ?? null,
+    intent: turn.intent ?? null,
     answer: turn.answer,
     feedback: turn.feedback,
     betterAnswer: turn.betterAnswer,
+    idealAnswer: turn.idealAnswer ?? null,
     transcriptSource: turn.transcriptSource,
     answerDurationSec: turn.answerDurationSec,
     expression: safeJsonParse<Record<string, number | string>>(turn.expressionJson, {}),
     score: safeJsonParse<Record<string, number>>(turn.scoreJson, {}),
+    review: safeJsonParse<Record<string, unknown> | null>(turn.reviewJson ?? null, null),
     createdAt: turn.createdAt.toISOString(),
     updatedAt: turn.updatedAt.toISOString(),
   };
