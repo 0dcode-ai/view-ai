@@ -10,6 +10,8 @@ import type {
   CreateApplicationInput,
   CreateExperienceInput,
   CreateKnowledgeInput,
+  BulkCreateKnowledgeInput,
+  BatchKnowledgeAgentInput,
   CreateSourceDocumentInput,
   CreateResumeVersionInput,
   GenerateSprintInput,
@@ -55,6 +57,20 @@ import { normalizeTags, safeJsonParse, tagsToJson } from "./utils/json";
 import { nextReviewDate, priorityFromReview } from "./utils/srs";
 
 type Query = Record<string, string | undefined>;
+type KnowledgeStudyGuide = {
+  headline: string;
+  coreAnswer: string;
+  interviewAnswer: string;
+  problemContext: string[];
+  thinkingPath: string[];
+  keySteps: string[];
+  exampleOrCode: string;
+  tradeoffs: string[];
+  pitfalls: string[];
+  followUps: string[];
+  projectHooks: string[];
+  reviewChecklist: string[];
+};
 type MockSeniority = "junior" | "mid" | "senior" | "staff";
 type MockTopic = {
   id: string;
@@ -272,7 +288,7 @@ export class CoreService {
             userId: user.id,
             agentName: agent.agentName,
             displayName: agent.displayName,
-            model: process.env.OPENAI_MODEL || "GLM-5.1",
+            model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
           },
         }),
       ),
@@ -302,7 +318,7 @@ export class CoreService {
         agentName,
         displayName: input.displayName?.trim() || defaultAgent?.displayName || agentName,
         enabled: input.enabled ?? true,
-        model: input.model?.trim() || process.env.OPENAI_MODEL || "GLM-5.1",
+        model: input.model?.trim() || process.env.OPENAI_MODEL || "deepseek-v4-pro",
         configJson: JSON.stringify(input.config ?? {}),
         promptJson: JSON.stringify(input.prompt ?? {}),
       },
@@ -358,7 +374,7 @@ export class CoreService {
         userId: user.id,
         agentName,
         displayName: knownAgents.find((agent) => agent.agentName === agentName)?.displayName ?? agentName,
-        model: process.env.OPENAI_MODEL || "GLM-5.1",
+        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
       },
     });
     const sourceIds = input.sourceIds ?? [];
@@ -386,7 +402,7 @@ export class CoreService {
         userId: user.id,
         agentName,
         status: result.usedFallback ? "fallback" : "success",
-        model: config.model || process.env.OPENAI_MODEL || "GLM-5.1",
+        model: config.model || process.env.OPENAI_MODEL || "deepseek-v4-pro",
         usedFallback: result.usedFallback,
         latencyMs,
         resourceType: input.resourceType?.trim() || (application ? "application" : null),
@@ -402,7 +418,7 @@ export class CoreService {
       output: result.output,
       execution: {
         steps: result.steps,
-        model: config.model || process.env.OPENAI_MODEL || "GLM-5.1",
+        model: config.model || process.env.OPENAI_MODEL || "deepseek-v4-pro",
         usedFallback: result.usedFallback,
         latencyMs,
       },
@@ -417,7 +433,7 @@ export class CoreService {
         userId,
         agentName,
         status,
-        model: process.env.OPENAI_MODEL || "GLM-5.1",
+        model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
         usedFallback: true,
         latencyMs: 0,
         resourceType: "interview_session",
@@ -598,7 +614,7 @@ export class CoreService {
       application: serializeApplication(updated),
       matchReport: report,
       execution: {
-        model: "rules + GLM fallback",
+        model: "rules + model fallback",
         usedFallback: true,
         steps: ["抽取 JD 关键词", "扫描简历命中证据", "生成缺口建议和候选 bullet"],
       },
@@ -899,6 +915,59 @@ export class CoreService {
     return { card: serializeKnowledgeCard(card), aiSuggestion: null };
   }
 
+  async bulkCreateKnowledge(user: AuthUser, input: BulkCreateKnowledgeInput) {
+    await this.ensureUser(user);
+    const created = [];
+    for (const cardInput of input.cards) {
+      const [company, topic] = await Promise.all([
+        this.findOrCreateCompany(cardInput.companyName),
+        this.findOrCreateTopic(cardInput.topicName),
+      ]);
+      const card = await this.prisma.knowledgeCard.create({
+        data: {
+          userId: user.id,
+          question: cardInput.question.trim(),
+          answer: cardInput.answer.trim(),
+          companyId: company?.id,
+          topicId: topic?.id,
+          roleDirection: cardInput.roleDirection?.trim() || null,
+          questionType: cardInput.questionType?.trim() || "八股",
+          abilityDimension: cardInput.abilityDimension?.trim() || "基础知识",
+          mastery: cardInput.mastery ?? 0,
+          priorityScore: cardInput.priorityScore ?? 60,
+          tagsJson: tagsToJson(cardInput.tags),
+          difficulty: cardInput.difficulty,
+          source: cardInput.source?.trim() || null,
+          note: cardInput.note?.trim() || null,
+        },
+        include: includeKnowledge,
+      });
+      created.push(card);
+    }
+
+    return { created: created.map(serializeKnowledgeCard) };
+  }
+
+  async batchKnowledgeAgent(user: AuthUser, input: BatchKnowledgeAgentInput) {
+    await this.ensureUser(user);
+    if (input.articleId) {
+      throw new NotFoundException("独立 API 暂未接入本地技术文章库，请直接粘贴文章正文。");
+    }
+    const rawText = input.rawText?.trim() ?? "";
+    if (!rawText) {
+      throw new NotFoundException("请粘贴文章正文。");
+    }
+    const cardDrafts = buildKnowledgeBatchFallback(rawText, input.extraContext ?? "", input.maxCards);
+    return {
+      cardDrafts,
+      execution: {
+        steps: [`已用本地规则从文章拆出 ${cardDrafts.length} 张八股卡草稿。`],
+        model: "local fallback",
+        usedFallback: true,
+      },
+    };
+  }
+
   async updateKnowledgeProgress(user: AuthUser, id: number, input: UpdateKnowledgeProgressInput) {
     await this.ensureUser(user);
     const existing = await this.prisma.knowledgeCard.findFirst({ where: { id, userId: user.id } });
@@ -1037,11 +1106,12 @@ export class CoreService {
   }
 
   async importQuestionTemplates() {
-    const filePath =
-      process.env.QUESTION_TEMPLATE_JSON_PATH ||
-      path.resolve(process.cwd(), "../../data/interview-internal-reference.json");
-    const content = await readFile(filePath, "utf8");
-    const input = JSON.parse(content) as SeedQuestion[];
+    const input = [
+      ...(await this.loadQuestionTemplateSeedFile(
+        process.env.QUESTION_TEMPLATE_JSON_PATH || path.resolve(process.cwd(), "../../data/interview-internal-reference.json"),
+      )),
+      ...(await this.loadQuestionTemplateSeedFile(path.resolve(process.cwd(), "../../data/leetcode-interview-reference.json"))),
+    ];
     let created = 0;
     let skipped = 0;
 
@@ -1078,6 +1148,11 @@ export class CoreService {
     }
 
     return { created, skipped, total: await this.prisma.questionTemplate.count() };
+  }
+
+  private async loadQuestionTemplateSeedFile(filePath: string) {
+    const content = await readFile(filePath, "utf8");
+    return JSON.parse(content) as SeedQuestion[];
   }
 
   async daily(user: AuthUser) {
@@ -1299,6 +1374,43 @@ export class CoreService {
     }
     const focusTurn = input.turnId ? session.turns.find((turn) => turn.id === input.turnId) ?? null : null;
 
+    if (input.mode === "relink_discussion") {
+      if (!focusTurn || focusTurn.turnType !== "discussion") {
+        throw new NotFoundException("请先选择一张自由讨论卡。");
+      }
+      const sourceTurn = input.sourceTurnId
+        ? session.turns.find((turn) => turn.id === input.sourceTurnId && turn.turnType === "primary") ?? null
+        : null;
+      if (!sourceTurn) {
+        throw new NotFoundException("请选择要归属的主问题。");
+      }
+
+      const relinkedTurn = await this.prisma.interviewTurn.update({
+        where: { id: focusTurn.id },
+        data: {
+          questionSource: sourceTurn.questionSource,
+          turnType: "followup",
+          parentTurnId: sourceTurn.id,
+          intent: `从自由讨论归属到主问题 #${sourceTurn.order} 的补充追问。`,
+          idealAnswer: sourceTurn.idealAnswer,
+          answer: input.answer.trim(),
+          transcriptSource: input.transcriptSource,
+          answerDurationSec: input.answerDurationSec,
+        },
+      });
+      const refreshedRelinked = await this.prisma.interviewSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        include: includeSession,
+      });
+
+      return {
+        session: serializeInterviewSession(refreshedRelinked),
+        answeredTurn: serializeInterviewTurnLoose(relinkedTurn),
+        nextTurn: null,
+        shouldFinish: false,
+      };
+    }
+
     if (input.mode === "discussion") {
       const discussionTurn = await this.prisma.interviewTurn.create({
         data: {
@@ -1428,6 +1540,7 @@ export class CoreService {
       throw new NotFoundException("这不是面试官 Agent 会话。");
     }
     const context = safeJsonParse<MockInterviewerContext>(session.contextJson, emptyMockContext(session.targetRole));
+    const existingExpression = safeJsonParse<Record<string, unknown>>(session.expressionJson, {});
     const turns: MockTurnLike[] = session.turns.map((turn) => ({
       id: turn.id,
       order: turn.order,
@@ -1474,9 +1587,11 @@ export class CoreService {
           summary: summary.summary,
           scoreJson: JSON.stringify({ overall: summary.overallScore, ...summary.dimensionAverages }),
           expressionJson: JSON.stringify({
+            ...existingExpression,
             agentName: "mock-interviewer",
             strengths: summary.strengths,
             nextActions: summary.nextActions,
+            interviewerSummary: summary,
           }),
         },
       }),
@@ -3236,6 +3351,175 @@ function makeSourceKey(item: SeedQuestion) {
   const source = item.source ?? "0voice/interview_internal_reference";
   const digest = createHash("sha1").update(`${source}:${item.note ?? ""}:${item.question}`).digest("hex");
   return `${source}:${digest}`;
+}
+
+function detectKnowledgeBatchTopic(rawText: string) {
+  const source = rawText.toLowerCase();
+  const topicMatchers: Array<{ topic: string; patterns: RegExp[] }> = [
+    { topic: "AI Agent", patterns: [/agent/, /rag/, /function calling/, /structured output/, /幻觉/, /hallucination/, /大模型/] },
+    { topic: "Redis", patterns: [/redis/] },
+    { topic: "MySQL", patterns: [/mysql/, /索引/, /事务/, /mvcc/] },
+    { topic: "React", patterns: [/react/, /useeffect/, /hooks?/] },
+    { topic: "JavaScript", patterns: [/javascript/, /\bjs\b/, /事件循环/, /闭包/, /原型/] },
+    { topic: "Node.js", patterns: [/node/, /event loop/, /中间件/] },
+    { topic: "网络", patterns: [/http/, /https/, /tcp/, /udp/, /cdn/] },
+    { topic: "系统设计", patterns: [/限流/, /熔断/, /消息队列/, /分布式/, /一致性/] },
+  ];
+
+  return topicMatchers.find((item) => item.patterns.some((pattern) => pattern.test(source)))?.topic || "技术八股";
+}
+
+function buildKnowledgeBatchTags(rawText: string, extraContext: string) {
+  const source = `${rawText} ${extraContext}`.toLowerCase();
+  return normalizeTags([
+    (/agent|rag|function calling|structured output|幻觉|hallucination|大模型/.test(source)) && "AI Agent",
+    /redis/.test(source) && "Redis",
+    (/react/.test(source) || /hooks?/.test(source)) && "React",
+    (/javascript/.test(source) || /\bjs\b/.test(source) || /事件循环/.test(source)) && "JavaScript",
+    (/mysql/.test(source) || /索引/.test(source) || /事务/.test(source)) && "MySQL",
+    (/http/.test(source) || /tcp/.test(source) || /网络/.test(source)) && "网络",
+    (/系统设计/.test(source) || /分布式/.test(source) || /消息队列/.test(source)) && "系统设计",
+    "八股",
+    /项目/.test(source) && "项目追问",
+  ].filter((tag): tag is string => typeof tag === "string"));
+}
+
+function looksLikeKnowledgeQuestion(line: string) {
+  return /[？?]$/.test(line) || /^(什么是|如何|怎么|为什么|哪些|你有哪些|谈谈|说说)/.test(line);
+}
+
+function deriveKnowledgeBatchQuestion(rawText: string, topicName: string) {
+  const firstSentence = rawText
+    .split(/[\n。！？]/)
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  if (firstSentence && /[？?]|是什么|为什么|怎么|如何|区别|原理/.test(firstSentence)) {
+    return firstSentence.endsWith("？") || firstSentence.endsWith("?") ? firstSentence : `${firstSentence}？`;
+  }
+
+  return `面试里怎么讲清楚 ${topicName} 的核心原理和使用取舍？`;
+}
+
+function splitKnowledgeBatchSections(rawText: string) {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const sections: Array<{ question: string; body: string }> = [];
+
+  for (const line of lines) {
+    if (looksLikeKnowledgeQuestion(line)) {
+      sections.push({ question: line.endsWith("？") || line.endsWith("?") ? line : `${line}？`, body: "" });
+      continue;
+    }
+
+    const current = sections[sections.length - 1];
+    if (current) {
+      current.body = [current.body, line].filter(Boolean).join("\n");
+    }
+  }
+
+  if (sections.length > 0) {
+    return sections.filter((section) => section.body.trim().length > 0);
+  }
+
+  return rawText
+    .split(/\n{2,}|(?<=。)\s*(?=什么是|如何|怎么|为什么|哪些|你有哪些|谈谈|说说)/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 20)
+    .map((chunk) => {
+      const topicName = detectKnowledgeBatchTopic(chunk);
+      return {
+        question: deriveKnowledgeBatchQuestion(chunk, topicName),
+        body: chunk,
+      };
+    });
+}
+
+function buildKnowledgeBatchFallback(rawText: string, extraContext: string, maxCards = 8) {
+  const safeMaxCards = Math.max(1, Math.min(12, maxCards));
+  const sections = splitKnowledgeBatchSections(rawText).slice(0, safeMaxCards);
+  const sourceSections = sections.length
+    ? sections
+    : [{ question: deriveKnowledgeBatchQuestion(rawText, detectKnowledgeBatchTopic(rawText)), body: rawText }];
+
+  return sourceSections.map((section) => {
+    const source = `${section.question}\n${section.body}`;
+    const topicName = detectKnowledgeBatchTopic(source);
+    const tags = buildKnowledgeBatchTags(source, extraContext);
+    const excerpt = section.body.trim().replace(/\s+/g, " ");
+    const answer =
+      `先给结论：${excerpt.slice(0, 140)}${excerpt.length > 140 ? "..." : ""}` +
+      `\n\n面试时可以按“定义/原因 -> 解决思路 -> 工程落地 -> 取舍风险”展开。` +
+      `\n\n结合原文，这题重点是：${excerpt.slice(0, 420)}${excerpt.length > 420 ? "..." : ""}`;
+    const studyGuide = buildCoreKnowledgeStudyGuide({
+      question: section.question,
+      answer,
+      topicName,
+      rawText: section.body,
+    });
+    return {
+      question: section.question,
+      answer,
+      topicName,
+      tags: tags.length ? tags : ["八股", topicName],
+      questionType: "八股",
+      abilityDimension: topicName === "系统设计" ? "架构设计" : "基础知识",
+      difficulty: "medium",
+      masterySuggestion: 1,
+      priorityScore: 74,
+      note: formatKnowledgeStudyGuide(studyGuide),
+      studyGuide,
+    };
+  });
+}
+
+function buildCoreKnowledgeStudyGuide(input: {
+  question: string;
+  answer: string;
+  topicName: string;
+  rawText: string;
+}): KnowledgeStudyGuide {
+  const excerpt = input.rawText.trim().replace(/\s+/g, " ");
+  return {
+    headline: input.question,
+    coreAnswer:
+      input.answer
+        .split(/\n+/)
+        .map((line) => line.trim())
+        .find(Boolean) || `先讲清楚 ${input.topicName} 的问题、机制、边界和项目落地。`,
+    interviewAnswer: input.answer,
+    problemContext: [
+      `这题通常用来判断你是否理解 ${input.topicName} 的使用场景和核心机制。`,
+      excerpt ? `材料里的关键上下文：${excerpt.slice(0, 160)}${excerpt.length > 160 ? "..." : ""}` : "需要结合真实工程场景讲。",
+    ],
+    thinkingPath: ["先给一句话结论", "再解释核心原理或关键流程", "最后补使用场景、取舍风险和项目例子"],
+    keySteps: ["定义问题", "拆核心机制", "说明适用场景", "讲清边界和坑", "连接项目中的一次使用或优化"],
+    exampleOrCode: excerpt ? `可以用这段材料抽一个例子：${excerpt.slice(0, 260)}${excerpt.length > 260 ? "..." : ""}` : `准备一段 ${input.topicName} 相关项目例子。`,
+    tradeoffs: ["同时讲收益和成本，例如性能、复杂度、一致性、可维护性或团队协作成本。"],
+    pitfalls: ["不要只背定义；不要忽略边界条件；不要把所有场景都说成必须使用同一种方案。"],
+    followUps: ["为什么这个方案适合这个场景？", "如果规模扩大或约束变化，你会怎么调整？", "你在项目里怎么验证它确实有效？"],
+    projectHooks: [`准备一个你在真实项目里用到 ${input.topicName} 的场景，按“背景 -> 动作 -> 结果 -> 复盘”讲。`],
+    reviewChecklist: ["30 秒说出结论", "90 秒讲完机制和场景", "能回答 2 个追问", "能连到项目经历", "能说出一个风险或替代方案"],
+  };
+}
+
+function formatKnowledgeStudyGuide(guide: KnowledgeStudyGuide) {
+  const renderList = (values: string[]) => values.map((value) => `- ${value}`).join("\n");
+  return [
+    `## 一句话结论\n${guide.coreAnswer}`,
+    `## 面试回答\n${guide.interviewAnswer}`,
+    `## 考点定位\n${renderList(guide.problemContext)}`,
+    `## 思路\n${renderList(guide.thinkingPath)}`,
+    `## 步骤\n${renderList(guide.keySteps)}`,
+    `## 示例\n${guide.exampleOrCode}`,
+    `## 复杂度与取舍\n${renderList(guide.tradeoffs)}`,
+    `## 易错点\n${renderList(guide.pitfalls)}`,
+    `## 常见追问\n${renderList(guide.followUps)}`,
+    `## 项目连接\n${renderList(guide.projectHooks)}`,
+    `## 复习清单\n${renderList(guide.reviewChecklist)}`,
+  ].join("\n\n");
 }
 
 function serializeInterviewTurnLoose(turn: {

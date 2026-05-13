@@ -17,7 +17,9 @@ export function SessionList({ sessions }: SessionListProps) {
         <article key={session.id} className="rounded-xl border border-border bg-surface p-3.5 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <h5 className="text-sm font-semibold">
-              {interviewModeLabels[session.mode]} / {roundTypeLabels[session.roundType]}
+              {session.config?.sessionKind === "mock_interviewer"
+                ? "面试官 Agent"
+                : `${interviewModeLabels[session.mode]} / ${roundTypeLabels[session.roundType]}`}
             </h5>
             <Pill variant={session.status === "finished" ? "brand" : "accent"}>
               {session.status === "finished" ? "已完成" : session.status}
@@ -29,8 +31,17 @@ export function SessionList({ sessions }: SessionListProps) {
           </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             <Pill>总分 {scoreOrDash(session.score.overall)}</Pill>
-            <Pill>八股 {scoreOrDash(session.score.knowledge)}</Pill>
-            <Pill>表达 {scoreOrDash(session.score.expression)}</Pill>
+            {session.config?.sessionKind === "mock_interviewer" ? (
+              <>
+                <Pill>主问题 {session.turns.filter((turn) => turn.turnType === "primary" && turn.answer?.trim()).length}/{session.plan?.primaryQuestionBudget ?? session.turns.filter((turn) => turn.turnType === "primary").length}</Pill>
+                <Pill>讨论 {session.turns.filter((turn) => turn.turnType === "discussion").length}</Pill>
+              </>
+            ) : (
+              <>
+                <Pill>八股 {scoreOrDash(session.score.knowledge)}</Pill>
+                <Pill>表达 {scoreOrDash(session.score.expression)}</Pill>
+              </>
+            )}
           </div>
           <div className="mt-2 text-xs text-muted-foreground">{formatDate(session.updatedAt)}</div>
         </article>

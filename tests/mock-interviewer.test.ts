@@ -182,4 +182,60 @@ describe("mock interviewer rules", () => {
     expect(summary.discussionReviews).toHaveLength(1);
     expect(summary.discussionReviews[0].turnId).toBe(22);
   });
+
+  it("does not count discussion cards toward primary coverage progress", () => {
+    const context = buildInterviewerContext({
+      resumeText,
+      targetRole: "前端工程师",
+      seniority: "mid",
+      durationMinutes: 20,
+    });
+    const primary = makeTurn({
+      id: 31,
+      order: 1,
+      question: "请讲一个项目。",
+      answer: null,
+    });
+    const discussion = makeTurn({
+      id: 32,
+      order: 6,
+      turnType: "discussion",
+      question: "偏题讨论",
+      answer: "这里补充了一段自由讨论。",
+    });
+
+    const summary = finishInterviewerSession([primary, discussion], context);
+
+    expect(summary.questionReviews).toHaveLength(0);
+    expect(summary.discussionReviews).toHaveLength(1);
+  });
+
+  it("treats relinked discussion content as followup content under the primary question", () => {
+    const context = buildInterviewerContext({
+      resumeText,
+      targetRole: "前端工程师",
+      seniority: "mid",
+      durationMinutes: 20,
+    });
+    const primary = makeTurn({
+      id: 41,
+      order: 1,
+      question: "请讲一个项目。",
+      answer: "我负责过一个性能优化项目。",
+    });
+    const relinkedDiscussion = makeTurn({
+      id: 42,
+      order: 6,
+      turnType: "followup",
+      parentTurnId: 41,
+      question: "自由讨论：补充团队协作和结果",
+      answer: "这段原本是自由讨论，后来归属到主问题，补充了协作过程和 20% 的性能提升结果。",
+    });
+
+    const summary = finishInterviewerSession([primary, relinkedDiscussion], context);
+
+    expect(summary.questionReviews).toHaveLength(1);
+    expect(summary.questionReviews[0].followUps).toContain("自由讨论：补充团队协作和结果");
+    expect(summary.discussionReviews).toHaveLength(0);
+  });
 });

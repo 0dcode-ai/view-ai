@@ -1,5 +1,6 @@
 import { ApiClient } from "@interview/shared";
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 15000;
 const externalBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
 const migratedResources = new Set(
   (process.env.NEXT_PUBLIC_API_MIGRATED_RESOURCES || "knowledge,resumes,job-targets,interviews,interviewer-sessions,reviews,sprints,daily,experiences,companies,labs,learning-paths,applications,resume-versions,sources,agents")
@@ -19,7 +20,22 @@ export async function appRequestJson<T>(path: string, init?: RequestInit): Promi
     return localRequestJson<T>(path, init);
   }
 
-  return externalClient.request<T>(toExternalPath(path), init);
+  try {
+    return await withTimeout(
+      externalClient.request<T>(toExternalPath(path), init),
+      DEFAULT_REQUEST_TIMEOUT_MS,
+      `请求超时：${path}`,
+    );
+  } catch (error) {
+    if (canFallbackToLocalApi(init)) {
+      return localRequestJson<T>(path, init);
+    }
+    throw error;
+  }
+}
+
+function canFallbackToLocalApi(init?: RequestInit) {
+  return !init?.body || typeof init.body === "string";
 }
 
 function shouldProxyToExternalApi(path: string) {
@@ -46,7 +62,7 @@ function shouldProxyToExternalApi(path: string) {
 function isKnowledgeCrudPath(path: string) {
   const pathname = path.split("?")[0] ?? "";
 
-  if (pathname === "/api/knowledge") {
+  if (pathname === "/api/knowledge" || pathname === "/api/knowledge/bulk") {
     return true;
   }
 
@@ -167,12 +183,23 @@ function toExternalPath(path: string) {
 }
 
 async function localRequestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), DEFAULT_REQUEST_TIMEOUT_MS);
+
   const response = await fetch(url, {
     ...init,
+    signal: init?.signal ?? controller.signal,
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
+  }).catch((error: unknown) => {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`请求超时：${url}`);
+    }
+    throw error;
+  }).finally(() => {
+    globalThis.clearTimeout(timeout);
   });
   const payload = (await response.json().catch(() => ({}))) as { error?: string };
 
@@ -181,4 +208,15 @@ async function localRequestJson<T>(url: string, init?: RequestInit): Promise<T> 
   }
 
   return payload as T;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = globalThis.setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout) globalThis.clearTimeout(timeout);
+  });
 }

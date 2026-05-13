@@ -813,21 +813,21 @@ export type KnowledgeForm = {
 export type TabKey = "home" | "applications" | "interviewer" | "interview" | "records" | "github" | "agents" | "articles" | "ideas" | "targets" | "prep" | "knowledge" | "resume" | "sprint" | "review" | "trends" | "lab";
 
 export const pageLabels: Record<TabKey, string> = {
-  applications: "求职机会",
+  applications: "机会",
   agents: "Agent 设置",
   records: "记录",
   articles: "技术文章",
   ideas: "创业想法",
   github: "开源趋势",
-  home: "首页",
-  targets: "准备",
-  prep: "公司",
-  knowledge: "八股",
+  home: "总览",
+  targets: "岗位",
+  prep: "公司情报",
+  knowledge: "题库详情",
   resume: "简历",
   interviewer: "面试官 Agent",
-  interview: "模拟练习",
+  interview: "模拟",
   sprint: "计划",
-  review: "复盘",
+  review: "报告",
   trends: "趋势",
   lab: "实验室",
 };
@@ -849,14 +849,19 @@ export const emptyKnowledgeForm: KnowledgeForm = {
 };
 
 export const navItems: Array<{ key: TabKey; label: string; icon: typeof BookOpen; group: "core" | "hidden" }> = [
-  { key: "home", label: "今日", icon: Home, group: "core" },
-  { key: "applications", label: pageLabels.applications, icon: BriefcaseBusiness, group: "core" },
-  { key: "interviewer", label: pageLabels.interviewer, icon: UserRound, group: "core" },
+  { key: "home", label: pageLabels.home, icon: Home, group: "core" },
+  { key: "applications", label: pageLabels.applications, icon: BriefcaseBusiness, group: "hidden" },
+  { key: "prep", label: pageLabels.prep, icon: Building2, group: "core" },
+  { key: "records", label: "题库", icon: BookMarked, group: "core" },
   { key: "interview", label: pageLabels.interview, icon: MessageSquareText, group: "core" },
-  { key: "records", label: "知识库", icon: BookMarked, group: "core" },
-  { key: "github", label: pageLabels.github, icon: GitBranch, group: "core" },
-  { key: "ideas", label: pageLabels.ideas, icon: Rocket, group: "core" },
-  { key: "agents", label: pageLabels.agents, icon: Rocket, group: "core" },
+  { key: "review", label: pageLabels.review, icon: BarChart3, group: "core" },
+  { key: "lab", label: pageLabels.lab, icon: Code2, group: "core" },
+  { key: "sprint", label: pageLabels.sprint, icon: ClipboardList, group: "hidden" },
+  { key: "trends", label: pageLabels.trends, icon: BarChart3, group: "hidden" },
+  { key: "interviewer", label: pageLabels.interviewer, icon: UserRound, group: "hidden" },
+  { key: "github", label: pageLabels.github, icon: GitBranch, group: "hidden" },
+  { key: "ideas", label: pageLabels.ideas, icon: Rocket, group: "hidden" },
+  { key: "agents", label: pageLabels.agents, icon: Rocket, group: "hidden" },
 ];
 
 export const difficultyLabels: Record<string, string> = {

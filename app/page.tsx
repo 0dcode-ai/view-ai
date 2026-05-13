@@ -13,7 +13,6 @@ import {
   Copy,
   Download,
   Eye,
-  ExternalLink,
   FileText,
   Gauge,
   GitBranch,
@@ -62,12 +61,6 @@ import {
   type DailyData,
   type ExperienceDraft,
   type ExperienceReport,
-  type GithubRadarBrief,
-  type GithubRadarDigest,
-  type GithubRadarDigestResponse,
-  type GithubRepoAnalysis,
-  type GithubTrendListResponse,
-  type GithubTrendRepo,
   type InterviewSession,
   type JobTarget,
   type KnowledgeCard,
@@ -83,6 +76,7 @@ import {
   type SprintPlan,
   type SprintTask,
   type TabKey,
+  type TechnicalArticle,
   type TopicOption,
   difficultyLabels,
   emptyKnowledgeForm,
@@ -101,11 +95,17 @@ import {
   type CandidatePracticeReview,
 } from "@/lib/candidate-practice";
 import {
+  buildInterviewPlatformBenchmarks,
+  summarizeBenchmarkCoverage,
+  type InterviewBenchmarkStatus,
+} from "@/lib/interview-platform-benchmarks";
+import {
   requestJson,
   joinTags,
   formatDate,
   scoreOrDash,
 } from "@/app/helpers";
+import { buildKnowledgeStudyGuide } from "@/lib/knowledge-study-guide";
 
 import { cn } from "@/lib/utils";
 
@@ -126,17 +126,119 @@ import { LabList } from "@/app/components/lab/lab-list";
 import { WeaknessList } from "@/app/components/trends/weakness-list";
 import { ArticlesTab } from "@/app/components/articles/articles-tab";
 import type { ArticlesTabRef } from "@/app/components/articles/articles-tab";
+import { KnowledgeStudyGuideView } from "@/app/components/knowledge/study-guide-view";
+import { ApplicationsTab } from "@/app/features/applications/applications-tab";
+import {
+  applicationStageLabels,
+  applicationStageOrder,
+  emptyApplicationForm,
+  emptySourceForm,
+  type ApplicationDetailTab,
+  type ApplicationFilters,
+  type ApplicationForm,
+  type SourceForm,
+} from "@/app/features/applications/types";
+import {
+  btnGhost,
+  btnPrimary,
+  btnSecondary,
+  compactSelectCls,
+  heroGradientCls,
+  inputCls,
+  messageGradientCls,
+  progressGradientCls,
+  softGradientCls,
+  textareaCls,
+} from "@/app/components/shared/styles";
+import { RecordAgentEditor } from "@/app/features/records/record-agent-editor";
+import { RecordsTab } from "@/app/features/records/records-tab";
+import {
+  createKnowledgeCard,
+  createKnowledgeCards,
+  deleteKnowledgeCard,
+  exportWorkspaceData,
+  generateRecordCard,
+  generateRecordCards,
+  loadKnowledgeArticles,
+  loadKnowledgeCards,
+  seedQuestionBank,
+  suggestKnowledgeCard,
+  updateKnowledgeCard,
+  updateKnowledgeCardProgress,
+  type KnowledgeExportPayload,
+  type KnowledgeFilters,
+} from "@/app/features/records/api";
+import type {
+  RecordAgentExecution,
+  RecordAgentMode,
+  RecordBatchDraft,
+} from "@/app/features/records/types";
+import {
+  cardToKnowledgeForm,
+  emptyRecordAgentDraft,
+  makeRecordBatchDraft,
+  recordAgentDraftToForm,
+} from "@/app/features/records/utils";
+import { GithubTrendsTab } from "@/app/features/github-trends/github-trends-tab";
+import {
+  analyzeGithubRadar,
+  analyzeGithubRepository,
+  createGithubRadarSourceDraft,
+  createGithubRepoSourceDraft,
+  loadGithubTrendList,
+  refreshGithubTrendList,
+  updateGithubRepository,
+} from "@/app/features/github-trends/api";
+import {
+  emptyGithubRadar,
+  emptyGithubRadarDigest,
+  type GithubRadarBrief,
+  type GithubRadarDigest,
+  type GithubRadarDigestResponse,
+  type GithubRepoAnalyzeResponse,
+  type GithubTrendFilters,
+  type GithubTrendListResponse,
+  type GithubTrendRepo,
+} from "@/app/features/github-trends/types";
 
-const inputCls = "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20";
-const textareaCls = "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 min-h-[112px] resize-y leading-relaxed";
-const btnPrimary = "flex items-center justify-center gap-2 rounded-lg bg-[linear-gradient(110deg,#18181b_0%,#3f3f46_62%,#a8a29e_100%)] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-92 disabled:opacity-60";
-const btnSecondary = "flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-slate-50 disabled:opacity-60";
-const btnGhost = "flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-primary hover:bg-primary-soft disabled:opacity-60";
-const compactSelectCls = cn(inputCls, "!w-[170px] min-w-[170px]");
-const heroGradientCls = "bg-[linear-gradient(110deg,#18181b_0%,#3f3f46_52%,#f5f5f4_100%)] shadow-[0_18px_40px_rgba(15,23,42,0.16)]";
-const softGradientCls = "bg-[linear-gradient(135deg,#fafaf9_0%,#f5f5f4_50%,#e7e5e4_100%)]";
-const progressGradientCls = "bg-[linear-gradient(90deg,#18181b_0%,#52525b_58%,#d6d3d1_100%)]";
-const messageGradientCls = "bg-[linear-gradient(120deg,#18181b_0%,#3f3f46_62%,#71717a_100%)]";
+const ACTIVE_TAB_STORAGE_KEY = "interview-ai-active-tab";
+const WORKSPACE_STORAGE_KEY = "interview-ai-interview-workspace";
+const DEFAULT_TAB: TabKey = "home";
+const validTabs = new Set<TabKey>(Object.keys(pageLabels) as TabKey[]);
+const quickDialogs = new Set<QuickDialog>(["experience", "jd", "resume", "interview", "sprint"]);
+const benchmarkStatusCopy: Record<InterviewBenchmarkStatus, { label: string; pill: "brand" | "accent" | "warn" }> = {
+  strong: { label: "已具备", pill: "brand" },
+  partial: { label: "可加强", pill: "accent" },
+  missing: { label: "待补齐", pill: "warn" },
+};
+const majorCompanyNames = [
+  "字节跳动",
+  "阿里巴巴",
+  "腾讯",
+  "百度",
+  "美团",
+  "京东",
+  "拼多多",
+  "小米",
+  "快手",
+  "华为",
+  "Google",
+  "Meta",
+  "Microsoft",
+  "Amazon",
+  "Apple",
+  "Netflix",
+  "OpenAI",
+  "NVIDIA",
+];
+
+function isTabKey(value: string | null | undefined): value is TabKey {
+  return !!value && validTabs.has(value as TabKey);
+}
+
+function isQuickDialog(value: string | null | undefined): value is QuickDialog {
+  return !!value && quickDialogs.has(value as QuickDialog);
+}
 
 type InterviewScript = {
   title: string;
@@ -179,6 +281,17 @@ type StartupIdeaAgentIdea = Omit<StartupIdeaForm, "tags"> & {
   tags: string[];
 };
 
+function isInterviewerSessionSummary(value: unknown): value is InterviewerSessionSummary {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<InterviewerSessionSummary>;
+  return typeof candidate.overallScore === "number"
+    && typeof candidate.summary === "string"
+    && Array.isArray(candidate.questionReviews)
+    && Array.isArray(candidate.discussionReviews)
+    && !!candidate.dimensionAverages
+    && typeof candidate.dimensionAverages === "object";
+}
+
 type StartupIdeaAgentExecution = {
   steps: string[];
   model: string;
@@ -189,6 +302,8 @@ type StartupIdeaAgentResponse = {
   idea: StartupIdeaAgentIdea;
   execution: StartupIdeaAgentExecution;
 };
+
+type QuickDialog = "experience" | "jd" | "resume" | "interview" | "sprint";
 
 type CandidateSeniority = "junior" | "mid" | "senior" | "staff";
 type InterviewDifficulty = "easy" | "medium" | "hard";
@@ -218,174 +333,9 @@ const difficultyCopy: Record<InterviewDifficulty, { label: string; tone: string;
   },
 };
 
-type RecordAgentCardDraft = {
-  question: string;
-  answer: string;
-  topicName: string;
-  tags: string[];
-  questionType: string;
-  abilityDimension: string;
-  difficulty: "easy" | "medium" | "hard";
-  masterySuggestion: number;
-  priorityScore: number;
-  note: string;
-};
-
-type RecordAgentExecution = {
-  steps: string[];
-  model: string;
-  usedFallback: boolean;
-};
-
-type RecordAgentResponse = {
-  cardDraft: RecordAgentCardDraft;
-  execution: RecordAgentExecution;
-};
-
 type CandidatePrepResponse = {
   prep: CandidatePrep;
   execution: CandidatePrepExecution;
-};
-
-type GithubTrendFilters = {
-  q: string;
-  topic: string;
-  language: string;
-  window: string;
-  sort: string;
-  favorite: string;
-};
-
-type GithubRepoAnalyzeResponse = {
-  repository: GithubTrendRepo;
-  analysis: GithubRepoAnalysis;
-  execution: {
-    model: string;
-    usedFallback: boolean;
-    steps: string[];
-  };
-};
-
-const emptyGithubRadar: GithubRadarBrief = {
-  headline: "还没有可分析的 GitHub 雷达数据",
-  summary: "先刷新一次趋势榜，系统会基于仓库热度、增速和主题聚合生成一版优先级简报。",
-  keySignals: [],
-  watchlist: [],
-  selectedRepoCount: 0,
-  dedupedRepoCount: 0,
-  uniqueThemeCount: 0,
-  topRepositories: [],
-  themeClusters: [],
-};
-
-const emptyGithubRadarDigest: GithubRadarDigest = {
-  title: "",
-  summary: "",
-  themeTakeaways: [],
-  opportunities: [],
-  risks: [],
-  recommendedActions: [],
-  watchItems: [],
-};
-
-type ApplicationForm = {
-  companyName: string;
-  roleName: string;
-  level: CandidateSeniority;
-  salaryK: number;
-  salaryMinK: number;
-  salaryMaxK: number;
-  status: string;
-  stage: ApplicationStage;
-  jobUrl: string;
-  location: string;
-  source: string;
-  priority: number;
-  appliedAt: string;
-  followUpAt: string;
-  deadlineAt: string;
-  contactName: string;
-  contactEmail: string;
-  jdSnapshot: string;
-  interviewDate: string;
-  resumeProfileId: string;
-  jobTargetId: string;
-  note: string;
-};
-
-type ApplicationFilters = {
-  q: string;
-  stage: string;
-  archived: string;
-  sort: string;
-};
-
-type ApplicationDetailTab = "overview" | "jd" | "match" | "resume" | "prep" | "activity";
-
-type SourceForm = {
-  title: string;
-  sourceType: "resume" | "jd" | "article" | "experience" | "github" | "note";
-  content: string;
-};
-
-const emptyApplicationForm: ApplicationForm = {
-  companyName: "",
-  roleName: "",
-  level: "mid",
-  salaryK: 25,
-  salaryMinK: 25,
-  salaryMaxK: 35,
-  status: "tracking",
-  stage: "saved",
-  jobUrl: "",
-  location: "",
-  source: "",
-  priority: 70,
-  appliedAt: "",
-  followUpAt: "",
-  deadlineAt: "",
-  contactName: "",
-  contactEmail: "",
-  jdSnapshot: "",
-  interviewDate: "",
-  resumeProfileId: "",
-  jobTargetId: "",
-  note: "",
-};
-
-const emptySourceForm: SourceForm = {
-  title: "",
-  sourceType: "note",
-  content: "",
-};
-
-const applicationStatusLabels: Record<string, string> = {
-  tracking: "跟进中",
-  preparing: "准备中",
-  applied: "已投递",
-  interviewing: "面试中",
-  offer: "Offer",
-  rejected: "已结束",
-  paused: "暂停",
-  archived: "已归档",
-};
-
-const applicationStageLabels: Record<ApplicationStage, string> = {
-  saved: "已保存",
-  preparing: "准备中",
-  applied: "已投递",
-  interviewing: "面试中",
-  offer: "Offer",
-  closed: "已结束",
-};
-
-const applicationStageOrder: ApplicationStage[] = ["saved", "preparing", "applied", "interviewing", "offer", "closed"];
-
-type KnowledgeListResponse = {
-  cards: KnowledgeCard[];
-  companies: CompanyOption[];
-  topics: TopicOption[];
-  tags: string[];
 };
 
 const aiPodcastIdeaForm: StartupIdeaForm = {
@@ -418,15 +368,6 @@ const emptyStartupIdeaForm: StartupIdeaForm = {
   status: "idea",
 };
 
-const emptyRecordAgentDraft: KnowledgeForm = {
-  ...emptyKnowledgeForm,
-  source: "快速记录 Agent",
-  questionType: "八股",
-  abilityDimension: "基础知识",
-  mastery: 1,
-  priorityScore: 72,
-};
-
 function startupIdeaToForm(idea: StartupIdea | StartupIdeaAgentIdea): StartupIdeaForm {
   return {
     title: idea.title,
@@ -441,24 +382,6 @@ function startupIdeaToForm(idea: StartupIdea | StartupIdeaAgentIdea): StartupIde
     risks: idea.risks,
     tags: joinTags(idea.tags),
     status: idea.status,
-  };
-}
-
-function recordAgentDraftToForm(draft: RecordAgentCardDraft): KnowledgeForm {
-  return {
-    question: draft.question,
-    answer: draft.answer,
-    companyName: "",
-    topicName: draft.topicName,
-    roleDirection: "",
-    questionType: draft.questionType,
-    abilityDimension: draft.abilityDimension,
-    mastery: draft.masterySuggestion,
-    priorityScore: draft.priorityScore,
-    tags: joinTags(draft.tags),
-    difficulty: draft.difficulty,
-    source: "快速记录 Agent",
-    note: draft.note,
   };
 }
 
@@ -491,79 +414,10 @@ function CompactIdeaCard({ title, value, className, children }: CompactIdeaCardP
   );
 }
 
-function KeywordRow({ item }: { item: { keyword: string; category: string; required: boolean; suggestion?: string } }) {
-  return (
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 rounded-lg border border-border bg-surface px-3 py-2">
-      <strong className="text-sm text-slate-900">{item.keyword}</strong>
-      <Pill>{item.category}</Pill>
-      {item.required && <Pill variant="warn">必备</Pill>}
-      {item.suggestion && <span className="min-w-[180px] flex-1 truncate text-xs text-muted-foreground">{item.suggestion}</span>}
-    </div>
-  );
-}
-
-function RepoMiniStat({ label, value }: { label: string; value: number | string }) {
-  return (
-    <div className="rounded-lg bg-slate-50 px-2.5 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{value}</p>
-    </div>
-  );
-}
-
-function RepoSignalCard({ label, value, caption }: { label: string; value: number | string; caption: string }) {
-  return (
-    <article className="rounded-xl border border-border bg-surface p-3 shadow-sm">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-1 truncate text-lg font-semibold text-foreground">{value}</p>
-      <p className="mt-1 truncate text-xs text-muted-foreground">{caption}</p>
-    </article>
-  );
-}
-
-function TextListOrEmpty({ values, emptyText = "暂无分析。" }: { values: string[]; emptyText?: string }) {
-  if (values.length === 0) {
-    return <p className="text-[13px] leading-6 text-slate-600">{emptyText}</p>;
-  }
-
-  return <TextList values={values} />;
-}
-
-function renderAgentSourceMix(sourceMix: unknown) {
-  if (!sourceMix || typeof sourceMix !== "object") {
-    return null;
-  }
-
-  const typed = sourceMix as { github?: number; other?: number };
-  return (
-    <p className="mt-1 text-xs text-muted-foreground">
-      来源结构：GitHub {String(typed.github ?? 0)} / 其他 {String(typed.other ?? 0)}
-    </p>
-  );
-}
-
 function labIcon(type: LabType) {
   if (type === "peer_mock") return <Users size={16} />;
   if (type === "system_design") return <GitBranch size={16} />;
   return <Code2 size={16} />;
-}
-
-function cardToKnowledgeForm(card: KnowledgeCard): KnowledgeForm {
-  return {
-    question: card.question,
-    answer: card.answer,
-    companyName: card.company?.name ?? "",
-    topicName: card.topic?.name ?? "",
-    roleDirection: card.roleDirection ?? "",
-    questionType: card.questionType,
-    abilityDimension: card.abilityDimension,
-    mastery: card.mastery,
-    priorityScore: card.priorityScore,
-    tags: joinTags(card.tags),
-    difficulty: card.difficulty === "easy" || card.difficulty === "hard" ? card.difficulty : "medium",
-    source: card.source ?? "",
-    note: card.note ?? "",
-  };
 }
 
 function inferCandidateDifficulty(seniority: CandidateSeniority, salaryK: number): InterviewDifficulty {
@@ -586,10 +440,84 @@ function describeCandidateTarget(seniority: CandidateSeniority, salaryK: number)
   };
 }
 
+type QuickAction = {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  action: () => void;
+  tone?: "primary" | "soft";
+};
+
+function EmptyBeauty({
+  title,
+  description,
+  action,
+}: {
+  title: string;
+  description: string;
+  action?: QuickAction;
+}) {
+  return (
+    <div className="rounded-lg border border-dashed border-sky-200 bg-sky-50/55 p-6 text-center">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-lg bg-white text-sky-700 shadow-sm">
+        <Sparkles size={18} />
+      </div>
+      <h4 className="mt-4 text-sm font-semibold text-slate-950">{title}</h4>
+      <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500">{description}</p>
+      {action && (
+        <button className={btnPrimary + " mx-auto mt-4"} type="button" onClick={action.action}>
+          {action.icon}
+          {action.title}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function DialogShell({
+  title,
+  description,
+  icon,
+  onClose,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: ReactNode;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-sky-100 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.22)]">
+        <div className="flex items-start justify-between gap-4 border-b border-sky-100 bg-[linear-gradient(135deg,#f8fbff,#edf8ff)] px-5 py-4">
+          <div className="flex gap-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-sky-700 shadow-sm ring-1 ring-sky-100">
+              {icon}
+            </span>
+            <div>
+              <h3 className="text-base font-semibold text-slate-950">{title}</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+            </div>
+          </div>
+          <button className="rounded-lg p-2 text-slate-500 transition hover:bg-white hover:text-slate-950" type="button" onClick={onClose} aria-label="关闭弹窗">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<TabKey>("records");
+  const [activeTab, setActiveTab] = useState<TabKey>(DEFAULT_TAB);
+  const [hasRestoredShellState, setHasRestoredShellState] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [initialLoadErrors, setInitialLoadErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState("");
+  const [activeDialog, setActiveDialog] = useState<QuickDialog | null>(null);
 
   const [cards, setCards] = useState<KnowledgeCard[]>([]);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
@@ -619,7 +547,7 @@ export default function Home() {
   const [agentConfigs, setAgentConfigs] = useState<AgentConfig[]>([]);
   const [agentRunResult, setAgentRunResult] = useState<AgentRunResponse | null>(null);
 
-  const [filters, setFilters] = useState({ q: "", company: "", topic: "", mastery: "", questionType: "" });
+  const [filters, setFilters] = useState<KnowledgeFilters>({ q: "", company: "", topic: "", mastery: "", questionType: "" });
   const [knowledgeForm, setKnowledgeForm] = useState<KnowledgeForm>(emptyKnowledgeForm);
   const [knowledgeEditForm, setKnowledgeEditForm] = useState<KnowledgeForm>(emptyKnowledgeForm);
   const [knowledgeSuggestion, setKnowledgeSuggestion] = useState<KnowledgeSuggestion | null>(null);
@@ -629,7 +557,12 @@ export default function Home() {
   const [recordText, setRecordText] = useState("");
   const [recordContext, setRecordContext] = useState("");
   const [recordDraft, setRecordDraft] = useState<KnowledgeForm>(emptyRecordAgentDraft);
+  const [recordAgentMode, setRecordAgentMode] = useState<RecordAgentMode>("single");
   const [recordAgentExecution, setRecordAgentExecution] = useState<RecordAgentExecution | null>(null);
+  const [recordArticles, setRecordArticles] = useState<TechnicalArticle[]>([]);
+  const [recordArticleId, setRecordArticleId] = useState<number | null>(null);
+  const [recordBatchMaxCards, setRecordBatchMaxCards] = useState(8);
+  const [recordBatchDrafts, setRecordBatchDrafts] = useState<RecordBatchDraft[]>([]);
   const [recordTagFilter, setRecordTagFilter] = useState("");
   const [knowledgeTags, setKnowledgeTags] = useState<string[]>([]);
   const [showRecordAgentEditor, setShowRecordAgentEditor] = useState(false);
@@ -645,6 +578,10 @@ export default function Home() {
   const [jdText, setJdText] = useState("");
   const [selectedJobTargetId, setSelectedJobTargetId] = useState<number | null>(null);
   const [prepCompanyId, setPrepCompanyId] = useState<number | null>(null);
+  const [prepCompanySearch, setPrepCompanySearch] = useState("");
+  const [prepRoleFilter, setPrepRoleFilter] = useState("");
+  const [selectedPrepCompanyName, setSelectedPrepCompanyName] = useState("");
+  const [selectedPrepJobTargetId, setSelectedPrepJobTargetId] = useState<number | null>(null);
   const [experienceCompanyName, setExperienceCompanyName] = useState("");
   const [experienceRoleName, setExperienceRoleName] = useState("");
   const [experienceText, setExperienceText] = useState("");
@@ -673,6 +610,8 @@ export default function Home() {
   const [showInterviewerIdealAnswer, setShowInterviewerIdealAnswer] = useState(false);
   const [focusedInterviewerTurnId, setFocusedInterviewerTurnId] = useState<number | null>(null);
   const [interviewerDiscussionTitle, setInterviewerDiscussionTitle] = useState("");
+  const [interviewerDraftAnswers, setInterviewerDraftAnswers] = useState<Record<number, string>>({});
+  const [interviewerDiscussionParentId, setInterviewerDiscussionParentId] = useState<number | null>(null);
   const [candidateSeniority, setCandidateSeniority] = useState<CandidateSeniority>("mid");
   const [candidateSalaryK, setCandidateSalaryK] = useState(25);
   const [scriptResumeText, setScriptResumeText] = useState("");
@@ -786,6 +725,25 @@ export default function Home() {
     }),
     [candidatePracticeReviews, interviewScript, scriptPracticeAnswers],
   );
+  const interviewPlatformBenchmarks = useMemo(
+    () => buildInterviewPlatformBenchmarks({
+      knowledgeCount: cards.length,
+      hasResume: Boolean(selectedResume),
+      hasJobTarget: Boolean(selectedJobTarget),
+      hasCandidatePrep: Boolean(selectedResume?.candidatePrep),
+      hasInterviewerSession: Boolean(interviewerSession || sessions.some((session) => session.config?.sessionKind === "mock_interviewer")),
+      hasFinishedInterview: sessions.some((session) => session.status === "finished" && Boolean(session.summary)),
+      hasInterviewScript: Boolean(interviewScript),
+      practiceAnswerCount: Object.keys(scriptPracticeAnswers).length,
+      reviewTodoCount: reviewCards.filter((card) => card.status === "todo").length,
+      labSessionCount: labSessions.length,
+    }),
+    [cards.length, interviewScript, interviewerSession, labSessions.length, reviewCards, scriptPracticeAnswers, selectedJobTarget, selectedResume, sessions],
+  );
+  const interviewBenchmarkCoverage = useMemo(
+    () => summarizeBenchmarkCoverage(interviewPlatformBenchmarks),
+    [interviewPlatformBenchmarks],
+  );
 
   const selectedKnowledgeCard = useMemo(() => {
     if (!selectedKnowledgeId) return cards[0] ?? null;
@@ -884,6 +842,10 @@ export default function Home() {
     () => interviewerSession?.turns.filter((turn) => turn.turnType === "discussion") ?? [],
     [interviewerSession],
   );
+  const interviewerFollowUpTurns = useMemo(
+    () => interviewerSession?.turns.filter((turn) => turn.turnType === "followup") ?? [],
+    [interviewerSession],
+  );
   const interviewerFocusedTurn = useMemo(
     () => interviewerSession?.turns.find((turn) => turn.id === focusedInterviewerTurnId) ?? interviewerPrimaryTurns[0] ?? interviewerDiscussionTurns[0] ?? null,
     [focusedInterviewerTurnId, interviewerDiscussionTurns, interviewerPrimaryTurns, interviewerSession],
@@ -920,6 +882,60 @@ export default function Home() {
     if (!selectedGithubRepoId) return githubRepos[0] ?? null;
     return githubRepos.find((repo) => repo.id === selectedGithubRepoId) ?? githubRepos[0] ?? null;
   }, [githubRepos, selectedGithubRepoId]);
+  const prepRoleOptions = useMemo(
+    () =>
+      Array.from(new Set(jobTargets.map((target) => target.roleName.trim()).filter(Boolean))).sort((left, right) =>
+        left.localeCompare(right, "zh-Hans-CN"),
+      ),
+    [jobTargets],
+  );
+  const prepCompanyDirectory = useMemo(() => {
+    const directory = new Map<string, { name: string; companyId: number | null; jdCount: number; reportCount: number; roles: Set<string> }>();
+    const ensureEntry = (name: string, companyId: number | null = null) => {
+      const normalized = name.trim();
+      if (!normalized) return null;
+      const current = directory.get(normalized);
+      if (current) {
+        if (companyId && !current.companyId) current.companyId = companyId;
+        return current;
+      }
+      const next = { name: normalized, companyId, jdCount: 0, reportCount: 0, roles: new Set<string>() };
+      directory.set(normalized, next);
+      return next;
+    };
+
+    majorCompanyNames.forEach((name) => ensureEntry(name));
+    companies.forEach((company) => ensureEntry(company.name, company.id));
+    jobTargets.forEach((target) => {
+      const entry = ensureEntry(target.company?.name ?? "");
+      if (!entry) return;
+      entry.jdCount += 1;
+      if (target.roleName.trim()) entry.roles.add(target.roleName.trim());
+    });
+    experiences.forEach((report) => {
+      const entry = ensureEntry(report.company?.name ?? "");
+      if (!entry) return;
+      entry.reportCount += 1;
+      if (report.roleName.trim()) entry.roles.add(report.roleName.trim());
+    });
+
+    return [...directory.values()]
+      .filter((entry) => entry.name.toLowerCase().includes(prepCompanySearch.trim().toLowerCase()))
+      .filter((entry) => !prepRoleFilter || entry.roles.has(prepRoleFilter))
+      .sort((left, right) => right.jdCount - left.jdCount || right.reportCount - left.reportCount || left.name.localeCompare(right.name, "zh-Hans-CN"));
+  }, [companies, experiences, jobTargets, prepCompanySearch, prepRoleFilter]);
+  const prepFilteredJobTargets = useMemo(
+    () =>
+      jobTargets
+        .filter((target) => !selectedPrepCompanyName || (target.company?.name ?? "") === selectedPrepCompanyName)
+        .filter((target) => !prepRoleFilter || target.roleName === prepRoleFilter)
+        .sort((left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()),
+    [jobTargets, prepRoleFilter, selectedPrepCompanyName],
+  );
+  const selectedPrepJobTarget = useMemo(
+    () => prepFilteredJobTargets.find((target) => target.id === selectedPrepJobTargetId) ?? prepFilteredJobTargets[0] ?? null,
+    [prepFilteredJobTargets, selectedPrepJobTargetId],
+  );
   const selectedSprintStats = useMemo(() => {
     const tasks = selectedSprintPlan?.tasks ?? [];
     const done = tasks.filter((task) => task.status === "done").length;
@@ -976,39 +992,66 @@ export default function Home() {
       { label: "JD 匹配", value: companyIntel?.readiness.jd ?? companyPrep?.readiness.jd ?? selectedJobTarget?.match.matchScore ?? 0 },
       { label: "题库覆盖", value: companyIntel?.readiness.coverage ?? companyPrep?.readiness.coverage ?? 0 },
       { label: "模拟训练", value: companyIntel?.readiness.mock ?? companyPrep?.readiness.mock ?? averageInterviewScore },
-      { label: "复盘清理", value: companyIntel?.readiness.review ?? companyPrep?.readiness.review ?? (reviewCards.length ? Math.round(((reviewCards.length - todoReviewCount) / reviewCards.length) * 100) : 0) },
+      { label: "报告完成", value: companyIntel?.readiness.review ?? companyPrep?.readiness.review ?? (latestFinishedSession ? 100 : 0) },
       { label: "冲刺进度", value: sprintDoneRate },
     ],
-    [averageInterviewScore, companyIntel, companyPrep, reviewCards.length, selectedJobTarget, sprintDoneRate, todoReviewCount],
+    [averageInterviewScore, companyIntel, companyPrep, latestFinishedSession, selectedJobTarget, sprintDoneRate],
   );
 
   useEffect(() => {
-    const savedTab = window.localStorage.getItem("interview-ai-active-tab");
-    if (savedTab && pageLabels[savedTab as TabKey]) {
-      setActiveTab(savedTab as TabKey);
+    const params = new URLSearchParams(window.location.search);
+    const tabFromUrl = params.get("tab");
+    const actionFromUrl = params.get("action");
+    const savedTab = window.localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
+    const restoredTab = isTabKey(tabFromUrl) ? tabFromUrl : isTabKey(savedTab) ? savedTab : DEFAULT_TAB;
+    setActiveTab(restoredTab);
+    if (isQuickDialog(actionFromUrl)) {
+      setActiveDialog(actionFromUrl);
     }
 
-    const savedWorkspace = window.localStorage.getItem("interview-ai-interview-workspace");
+    const savedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
     if (savedWorkspace === "candidate" || savedWorkspace === "interviewer") {
       setInterviewWorkspace(savedWorkspace);
     }
+
+    setHasRestoredShellState(true);
   }, []);
 
   useEffect(() => {
-    if (activeTab === "interview") {
+    if (activeTab === "interview" && !selectedSessionId) {
       setInterviewWorkspace("candidate");
     }
-  }, [activeTab]);
+  }, [activeTab, selectedSessionId]);
 
   useEffect(() => {
-    window.localStorage.setItem("interview-ai-active-tab", activeTab);
-  }, [activeTab]);
+    if (!hasRestoredShellState) return;
+    window.localStorage.setItem(ACTIVE_TAB_STORAGE_KEY, activeTab);
+
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", activeTab);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [activeTab, hasRestoredShellState]);
 
   useEffect(() => {
-    window.localStorage.setItem("interview-ai-interview-workspace", interviewWorkspace);
-  }, [interviewWorkspace]);
+    if (!hasRestoredShellState) return;
+    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, interviewWorkspace);
+  }, [hasRestoredShellState, interviewWorkspace]);
 
-  useEffect(() => { void refreshAll(); }, []);
+  useEffect(() => {
+    if (!hasRestoredShellState) return;
+
+    let cancelled = false;
+    setIsInitialLoading(true);
+    void refreshAll().finally(() => {
+      if (!cancelled) {
+        setIsInitialLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasRestoredShellState]);
 
   useEffect(() => {
     if (!toast) return;
@@ -1052,6 +1095,22 @@ export default function Home() {
       setSelectedSessionId(sessions[0]?.id ?? null);
     }
   }, [selectedSessionId, sessions]);
+
+  useEffect(() => {
+    if (selectedPrepCompanyName && !prepCompanyDirectory.some((company) => company.name === selectedPrepCompanyName)) {
+      setSelectedPrepCompanyName("");
+    }
+  }, [prepCompanyDirectory, selectedPrepCompanyName]);
+
+  useEffect(() => {
+    if (!selectedPrepJobTargetId && prepFilteredJobTargets[0]) {
+      setSelectedPrepJobTargetId(prepFilteredJobTargets[0].id);
+      return;
+    }
+    if (selectedPrepJobTargetId && !prepFilteredJobTargets.some((target) => target.id === selectedPrepJobTargetId)) {
+      setSelectedPrepJobTargetId(prepFilteredJobTargets[0]?.id ?? null);
+    }
+  }, [prepFilteredJobTargets, selectedPrepJobTargetId]);
 
   useEffect(() => {
     if (!selectedSprintId && sprintPlans[0]) {
@@ -1103,6 +1162,44 @@ export default function Home() {
   }, [selectedApplication?.id]);
 
   useEffect(() => {
+    if (!selectedSessionDetail) {
+      setInterviewerSession(null);
+      setInterviewerSummary(null);
+      setFocusedInterviewerTurnId(null);
+      setInterviewerDiscussionParentId(null);
+      return;
+    }
+
+    if (selectedSessionDetail.config?.sessionKind === "mock_interviewer") {
+      setInterviewWorkspace("interviewer");
+      setInterviewerSession(selectedSessionDetail);
+      setInterviewerAnswerText("");
+      setInterviewerDiscussionTitle("");
+      setInterviewerDraftAnswers({});
+      setInterviewerDiscussionParentId(null);
+      setShowInterviewerIdealAnswer(false);
+      setFocusedInterviewerTurnId((current) => {
+        if (current && selectedSessionDetail.turns.some((turn) => turn.id === current)) return current;
+        return selectedSessionDetail.turns.find((turn) => turn.turnType === "primary")?.id
+          ?? selectedSessionDetail.turns.find((turn) => turn.turnType === "discussion")?.id
+          ?? selectedSessionDetail.turns[0]?.id
+          ?? null;
+      });
+      const persistedSummary = selectedSessionDetail.expression?.interviewerSummary;
+      setInterviewerSummary(isInterviewerSessionSummary(persistedSummary) ? persistedSummary : null);
+      return;
+    }
+
+    setInterviewerSession(null);
+    setInterviewerSummary(null);
+    setFocusedInterviewerTurnId(null);
+    setInterviewerAnswerText("");
+    setInterviewerDiscussionTitle("");
+    setInterviewerDraftAnswers({});
+    setInterviewerDiscussionParentId(null);
+  }, [selectedSessionDetail]);
+
+  useEffect(() => {
     setGithubNoteDraft(selectedGithubRepo?.note ?? "");
   }, [selectedGithubRepo?.id, selectedGithubRepo?.note]);
 
@@ -1120,9 +1217,7 @@ export default function Home() {
   }
 
   async function loadGithubTrends(nextFilters = githubFilters) {
-    const params = new URLSearchParams();
-    Object.entries(nextFilters).forEach(([key, value]) => { if (value) params.set(key, value); });
-    const payload = await requestJson<GithubTrendListResponse>(`/api/github-trends${params.toString() ? `?${params.toString()}` : ""}`);
+    const payload = await loadGithubTrendList(nextFilters);
     setGithubRepos(payload.repositories);
     setGithubLanguages(payload.languages);
     setGithubTopics(payload.topics);
@@ -1131,12 +1226,34 @@ export default function Home() {
   }
 
   async function refreshAll() {
-    await Promise.allSettled([
-      loadKnowledge(), loadResumes(), loadJobTargets(), loadReviews(),
-      loadSprints(), loadSessions(), loadDaily(), loadLearningPath(),
-      loadLabs(), loadExperiences(), loadApplications(), loadAgentConfigs(),
-      articlesRef.current?.refresh(), loadStartupIdeas(), loadGithubTrends(),
-    ]);
+    const tasks: Array<[string, Promise<unknown> | undefined]> = [
+      ["知识库", loadKnowledge()],
+      ["简历", loadResumes()],
+      ["岗位目标", loadJobTargets()],
+      ["复盘", loadReviews()],
+      ["冲刺计划", loadSprints()],
+      ["模拟记录", loadSessions()],
+      ["今日数据", loadDaily()],
+      ["岗位路径", loadLearningPath()],
+      ["实验室", loadLabs()],
+      ["面经", loadExperiences()],
+      ["技术文章", articlesRef.current?.refresh()],
+      ["记录文章", loadRecordArticles()],
+      ["创业想法", loadStartupIdeas()],
+      ["开源趋势", loadGithubTrends()],
+    ];
+    const results = await Promise.allSettled(tasks.map(([, task]) => task));
+    const errors = results.flatMap((result, index) => {
+      if (result.status === "fulfilled") return [];
+      const label = tasks[index]?.[0] ?? "未知模块";
+      const message = result.reason instanceof Error ? result.reason.message : "加载失败";
+      return [`${label}：${message}`];
+    });
+
+    setInitialLoadErrors(errors);
+    if (errors.length > 0) {
+      setToast(`部分模块加载失败：${errors.slice(0, 2).join("；")}`);
+    }
   }
 
   async function loadApplications(nextFilters = applicationFilters) {
@@ -1172,16 +1289,17 @@ export default function Home() {
   }
 
   async function loadKnowledge(nextFilters = filters) {
-    const params = new URLSearchParams();
-    Object.entries(nextFilters).forEach(([k, v]) => { if (v) params.set(k, v); });
-    const payload = await requestJson<KnowledgeListResponse>(
-      `/api/knowledge${params.toString() ? `?${params.toString()}` : ""}`,
-    );
+    const payload = await loadKnowledgeCards(nextFilters);
     setCards(payload.cards);
     setCompanies(payload.companies);
     setTopics(payload.topics);
     setKnowledgeTags(payload.tags);
     setPrepCompanyId((c) => c ?? payload.companies[0]?.id ?? null);
+  }
+
+  async function loadRecordArticles() {
+    const articles = await loadKnowledgeArticles();
+    setRecordArticles(articles);
   }
 
   async function loadResumes() {
@@ -1279,15 +1397,12 @@ export default function Home() {
     if (!knowledgeForm.question.trim()) { setToast("先填写题目。"); return; }
     setBusy("knowledge-suggest");
     try {
-      const payload = await requestJson<{ suggestion: KnowledgeSuggestion }>("/api/knowledge/suggest", {
-        method: "POST",
-        body: JSON.stringify({
-          question: knowledgeForm.question,
-          answer: knowledgeForm.answer,
-          companyName: knowledgeForm.companyName,
-          topicName: knowledgeForm.topicName,
-          tags: knowledgeForm.tags,
-        }),
+      const payload = await suggestKnowledgeCard({
+        question: knowledgeForm.question,
+        answer: knowledgeForm.answer,
+        companyName: knowledgeForm.companyName,
+        topicName: knowledgeForm.topicName,
+        tags: knowledgeForm.tags,
       });
       setKnowledgeSuggestion(payload.suggestion);
       setKnowledgeForm((c) => ({
@@ -1302,7 +1417,7 @@ export default function Home() {
         priorityScore: payload.suggestion.priorityScore,
         note: c.note || payload.suggestion.note,
       }));
-      setToast("已生成学习卡建议。");
+      setToast("已生成题库建议。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "AI 建议失败");
     } finally {
@@ -1314,11 +1429,11 @@ export default function Home() {
     if (!knowledgeForm.question.trim() || !knowledgeForm.answer.trim()) { setToast("题目和答案不能为空。"); return; }
     setBusy("knowledge-save");
     try {
-      await requestJson("/api/knowledge", { method: "POST", body: JSON.stringify(knowledgeForm) });
+      await createKnowledgeCard(knowledgeForm);
       setKnowledgeForm(emptyKnowledgeForm);
       setKnowledgeSuggestion(null);
       await Promise.all([loadKnowledge(), loadDaily()]);
-      setToast("学习卡已保存。");
+      setToast("题库记录已保存。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "保存失败");
     } finally {
@@ -1333,18 +1448,38 @@ export default function Home() {
     }
     setBusy("record-agent");
     try {
-      const payload = await requestJson<RecordAgentResponse>("/api/knowledge/agent", {
-        method: "POST",
-        body: JSON.stringify({
-          rawText: recordText,
-          extraContext: recordContext,
-        }),
+      const payload = await generateRecordCard({
+        rawText: recordText,
+        extraContext: recordContext,
       });
       setRecordDraft(recordAgentDraftToForm(payload.cardDraft));
       setRecordAgentExecution(payload.execution);
       setToast(payload.execution.usedFallback ? "已生成一版可编辑草稿，当前是 fallback 结果。" : "已生成面试可直接使用的八股卡草稿。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "记录 Agent 生成失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRecordBatchGenerate() {
+    if (!recordArticleId && recordText.trim().length < 12) {
+      setToast("请选择一篇技术文章，或直接贴入一段完整文章。");
+      return;
+    }
+    setBusy("record-batch-agent");
+    try {
+      const payload = await generateRecordCards({
+        rawText: recordText,
+        articleId: recordArticleId ?? undefined,
+        extraContext: recordContext,
+        maxCards: recordBatchMaxCards,
+      });
+      setRecordBatchDrafts(payload.cardDrafts.map(makeRecordBatchDraft));
+      setRecordAgentExecution(payload.execution);
+      setToast(payload.execution.usedFallback ? "已用本地规则拆出多张八股卡草稿。" : `已生成 ${payload.cardDrafts.length} 张可编辑八股卡草稿。`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "文章拆题失败");
     } finally {
       setBusy(null);
     }
@@ -1357,10 +1492,7 @@ export default function Home() {
     }
     setBusy("record-save");
     try {
-      const payload = await requestJson<{ card: KnowledgeCard }>("/api/knowledge", {
-        method: "POST",
-        body: JSON.stringify(recordDraft),
-      });
+      const payload = await createKnowledgeCard(recordDraft);
       setRecordText("");
       setRecordContext("");
       setRecordDraft(emptyRecordAgentDraft);
@@ -1368,7 +1500,7 @@ export default function Home() {
       setShowRecordAgentEditor(false);
       await Promise.all([loadKnowledge(), loadDaily()]);
       setSelectedKnowledgeId(payload.card.id);
-      setToast("已保存为面试八股卡，可以直接复习和继续编辑。");
+      setToast("已保存为面试题库记录，可以继续编辑。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "保存记录失败");
     } finally {
@@ -1376,12 +1508,71 @@ export default function Home() {
     }
   }
 
+  async function handleRecordBatchSave() {
+    const selectedDrafts = recordBatchDrafts.filter((draft) => draft.selected);
+    if (selectedDrafts.length === 0) {
+      setToast("请至少勾选一张要保存的八股卡。");
+      return;
+    }
+    const invalid = selectedDrafts.find((draft) => !draft.question.trim() || !draft.answer.trim());
+    if (invalid) {
+      setToast("被勾选的草稿里还有题目或答案为空。");
+      return;
+    }
+    setBusy("record-batch-save");
+    try {
+      const payload = await createKnowledgeCards(
+        selectedDrafts.map(({ draftId: _draftId, selected: _selected, ...draft }) => draft),
+      );
+      setRecordText("");
+      setRecordContext("");
+      setRecordDraft(emptyRecordAgentDraft);
+      setRecordBatchDrafts([]);
+      setRecordArticleId(null);
+      setRecordAgentExecution(null);
+      setShowRecordAgentEditor(false);
+      await Promise.all([loadKnowledge(), loadDaily()]);
+      setSelectedKnowledgeId(payload.created[0]?.id ?? null);
+      setToast(`已批量保存 ${payload.created.length} 张八股卡。`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "批量保存失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function updateRecordBatchDraft(draftId: string, patch: Partial<KnowledgeForm & { selected: boolean }>) {
+    setRecordBatchDrafts((drafts) => drafts.map((draft) => (draft.draftId === draftId ? { ...draft, ...patch } : draft)));
+  }
+
+  function removeRecordBatchDraft(draftId: string) {
+    setRecordBatchDrafts((drafts) => drafts.filter((draft) => draft.draftId !== draftId));
+  }
+
+  function jumpToBenchmarkTarget(target: "interviewer" | "candidate" | "records" | "lab" | "review" | "articles") {
+    if (target === "interviewer") {
+      setActiveTab("interviewer");
+      return;
+    }
+    if (target === "candidate") {
+      setActiveTab("interview");
+      setInterviewWorkspace("candidate");
+      return;
+    }
+    setActiveTab(target);
+  }
+
   function openRecordAgentEditor() {
     setRecordText("");
     setRecordContext("");
     setRecordDraft(emptyRecordAgentDraft);
+    setRecordAgentMode("single");
     setRecordAgentExecution(null);
+    setRecordBatchDrafts([]);
+    setRecordArticleId(null);
+    setRecordBatchMaxCards(8);
     setShowRecordAgentEditor(true);
+    void loadRecordArticles();
   }
 
   function closeRecordAgentEditor() {
@@ -1537,11 +1728,6 @@ export default function Home() {
     setResumeVersions((current) => current.map((item) => (item.id === version.id ? version : item)));
   }
 
-  function toDateInputValue(value?: string | null) {
-    if (!value) return "";
-    return value.slice(0, 10);
-  }
-
   async function handleCreateSource() {
     if (!sourceForm.title.trim() || !sourceForm.content.trim()) {
       setToast("来源标题和内容都不能为空。");
@@ -1693,10 +1879,7 @@ export default function Home() {
   async function refreshGithubTrends() {
     setBusy("github-refresh");
     try {
-      const payload = await requestJson<GithubTrendListResponse>("/api/github-trends/refresh", {
-        method: "POST",
-        body: JSON.stringify(githubFilters),
-      });
+      const payload = await refreshGithubTrendList(githubFilters);
       setGithubRepos(payload.repositories);
       setGithubLanguages(payload.languages);
       setGithubTopics(payload.topics);
@@ -1719,10 +1902,7 @@ export default function Home() {
   async function toggleGithubFavorite(repo: GithubTrendRepo) {
     setBusy(`github-favorite-${repo.id}`);
     try {
-      const payload = await requestJson<{ repository: GithubTrendRepo }>(`/api/github-trends/${repo.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ isFavorite: !repo.isFavorite }),
-      });
+      const payload = await updateGithubRepository(repo.id, { isFavorite: !repo.isFavorite });
       patchGithubRepo(payload.repository);
       setToast(payload.repository.isFavorite ? "已收藏仓库。" : "已取消收藏。");
     } catch (error) {
@@ -1736,10 +1916,7 @@ export default function Home() {
     if (!selectedGithubRepo) return;
     setBusy("github-note");
     try {
-      const payload = await requestJson<{ repository: GithubTrendRepo }>(`/api/github-trends/${selectedGithubRepo.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ note: githubNoteDraft }),
-      });
+      const payload = await updateGithubRepository(selectedGithubRepo.id, { note: githubNoteDraft });
       patchGithubRepo(payload.repository);
       setToast("仓库备注已保存。");
     } catch (error) {
@@ -1753,12 +1930,10 @@ export default function Home() {
     if (!selectedGithubRepo) return;
     setBusy("github-analyze");
     try {
-      const payload = await requestJson<GithubRepoAnalyzeResponse>(`/api/github-trends/${selectedGithubRepo.id}/analyze`, {
-        method: "POST",
-      });
+      const payload = await analyzeGithubRepository(selectedGithubRepo.id);
       patchGithubRepo(payload.repository);
       setGithubAnalyzeExecution(payload.execution);
-      setToast(payload.execution.usedFallback ? "已生成规则兜底分析。" : "GLM 已完成仓库分析。");
+      setToast(payload.execution.usedFallback ? "已生成规则兜底分析。" : `${payload.execution.model} 已完成仓库分析。`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "仓库分析失败");
     } finally {
@@ -1769,13 +1944,10 @@ export default function Home() {
   async function analyzeGithubRadarDigest() {
     setBusy("github-radar-analyze");
     try {
-      const payload = await requestJson<GithubRadarDigestResponse>("/api/github-trends/radar", {
-        method: "POST",
-        body: JSON.stringify(githubFilters),
-      });
+      const payload = await analyzeGithubRadar(githubFilters);
       setGithubRadarDigest(payload.digest);
       setGithubRadarExecution(payload.execution);
-      setToast(payload.execution.usedFallback ? "已生成规则兜底雷达简报。" : "GLM 已完成 GitHub 雷达简报。");
+      setToast(payload.execution.usedFallback ? "已生成规则兜底雷达简报。" : `${payload.execution.model} 已完成 GitHub 雷达简报。`);
     } catch (error) {
       setToast(error instanceof Error ? error.message : "生成 GitHub 雷达简报失败");
     } finally {
@@ -1791,20 +1963,7 @@ export default function Home() {
 
     setBusy("github-radar-source");
     try {
-      const payload = await requestJson<{
-        sourceDraft: {
-          title: string;
-          sourceType: "github";
-          content: string;
-          metadata?: Record<string, unknown>;
-        };
-      }>("/api/github-trends/source-draft", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "radar",
-          ...githubFilters,
-        }),
-      });
+      const payload = await createGithubRadarSourceDraft(githubFilters);
 
       await requestJson<{ source: SourceDocument }>("/api/sources", {
         method: "POST",
@@ -1832,21 +1991,7 @@ export default function Home() {
 
     setBusy(`github-source-${repo.id}`);
     try {
-      const payload = await requestJson<{
-        sourceDraft: {
-          title: string;
-          sourceType: "github";
-          content: string;
-          metadata?: Record<string, unknown>;
-        };
-      }>("/api/github-trends/source-draft", {
-        method: "POST",
-        body: JSON.stringify({
-          type: "repo",
-          repoId: repo.id,
-          ...githubFilters,
-        }),
-      });
+      const payload = await createGithubRepoSourceDraft(repo.id, githubFilters);
 
       await requestJson<{ source: SourceDocument }>("/api/sources", {
         method: "POST",
@@ -2091,12 +2236,9 @@ export default function Home() {
   async function updateKnowledgeProgress(cardId: number, mastery: number, markReviewed = false) {
     setBusy(`knowledge-${cardId}`);
     try {
-      await requestJson(`/api/knowledge/${cardId}/progress`, {
-        method: "PATCH",
-        body: JSON.stringify({ mastery, markReviewed }),
-      });
+      await updateKnowledgeCardProgress(cardId, { mastery, markReviewed });
       await Promise.all([loadKnowledge(), loadDaily()]);
-      setToast(markReviewed ? "已记录复习。" : "掌握度已更新。");
+      setToast(markReviewed ? "题目状态已记录。" : "题目状态已更新。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "更新失败");
     } finally {
@@ -2117,13 +2259,10 @@ export default function Home() {
     }
     setBusy("knowledge-update");
     try {
-      await requestJson(`/api/knowledge/${editingKnowledgeId}`, {
-        method: "PATCH",
-        body: JSON.stringify(knowledgeEditForm),
-      });
+      await updateKnowledgeCard(editingKnowledgeId, knowledgeEditForm);
       setEditingKnowledgeId(null);
       await Promise.all([loadKnowledge(), loadDaily()]);
-      setToast("学习卡已更新。");
+      setToast("题库记录已更新。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "更新失败");
     } finally {
@@ -2132,13 +2271,13 @@ export default function Home() {
   }
 
   async function handleKnowledgeDelete(cardId: number) {
-    if (!window.confirm("确认删除这张学习卡吗？关联复盘会保留，但不再关联该题。")) return;
+    if (!window.confirm("确认删除这条题库记录吗？历史面试报告会保留。")) return;
     setBusy(`knowledge-delete-${cardId}`);
     try {
-      await requestJson(`/api/knowledge/${cardId}`, { method: "DELETE" });
+      await deleteKnowledgeCard(cardId);
       setSelectedKnowledgeId((current) => (current === cardId ? null : current));
       await Promise.all([loadKnowledge(), loadDaily(), loadReviews()]);
-      setToast("学习卡已删除。");
+      setToast("题库记录已删除。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "删除失败");
     } finally {
@@ -2149,7 +2288,7 @@ export default function Home() {
   function handleStartReview() {
     const first = reviewQueue[0] ?? cards[0];
     if (!first) {
-      setToast("暂无可复习题卡。");
+      setToast("暂无题库记录。");
       return;
     }
     setReviewMode(true);
@@ -2362,6 +2501,8 @@ export default function Home() {
       setFocusedInterviewerTurnId(payload.session.turns.find((turn) => turn.turnType === "primary")?.id ?? payload.session.turns[0]?.id ?? null);
       setInterviewerAnswerText("");
       setInterviewerDiscussionTitle("");
+      setInterviewerDraftAnswers({});
+      setInterviewerDiscussionParentId(null);
       setInterviewerSummary(null);
       setShowInterviewerIdealAnswer(false);
       setSelectedSessionId(payload.session.id);
@@ -2372,6 +2513,18 @@ export default function Home() {
     } finally {
       setBusy(null);
     }
+  }
+
+  function focusInterviewerTurn(turnId: number, persistedAnswer?: string | null) {
+    if (focusedInterviewerTurnId) {
+      setInterviewerDraftAnswers((current) => ({
+        ...current,
+        [focusedInterviewerTurnId]: interviewerAnswerText,
+      }));
+    }
+    setFocusedInterviewerTurnId(turnId);
+    setInterviewerAnswerText(interviewerDraftAnswers[turnId] ?? persistedAnswer ?? "");
+    setShowInterviewerIdealAnswer(false);
   }
 
   async function handleSubmitInterviewerAnswer() {
@@ -2393,6 +2546,11 @@ export default function Home() {
         },
       );
       setInterviewerSession(payload.session);
+      setInterviewerDraftAnswers((current) => {
+        const next = { ...current };
+        delete next[interviewerFocusedTurn.id];
+        return next;
+      });
       setInterviewerAnswerText("");
       setFocusedInterviewerTurnId(typeof payload.nextTurn === "object" && payload.nextTurn && "id" in (payload.nextTurn as Record<string, unknown>)
         ? Number((payload.nextTurn as { id: number }).id)
@@ -2428,12 +2586,56 @@ export default function Home() {
       );
       setInterviewerSession(payload.session);
       setFocusedInterviewerTurnId(payload.answeredTurn.id);
+      setInterviewerDraftAnswers({});
       setInterviewerAnswerText("");
       setInterviewerDiscussionTitle("");
+      setInterviewerDiscussionParentId(null);
       await loadSessions();
       setToast("自由讨论卡已记录。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "自由讨论记录失败");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRelinkInterviewerDiscussion() {
+    if (!interviewerSession || !interviewerFocusedTurn || interviewerFocusedTurn.turnType !== "discussion") {
+      setToast("先选择一张自由讨论卡。");
+      return;
+    }
+    if (!interviewerDiscussionParentId) {
+      setToast("先选择要归属的主问题。");
+      return;
+    }
+    setBusy("interviewer-answer");
+    try {
+      const payload = await requestJson<{ session: InterviewSession; answeredTurn: { id: number } }>(
+        `/api/interviewer-sessions/${interviewerSession.id}/answer`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            mode: "relink_discussion",
+            turnId: interviewerFocusedTurn.id,
+            sourceTurnId: interviewerDiscussionParentId,
+            answer: interviewerAnswerText || interviewerFocusedTurn.answer || "已归属到主问题。",
+            transcriptSource: "text",
+          }),
+        },
+      );
+      setInterviewerSession(payload.session);
+      setInterviewerDraftAnswers((current) => {
+        const next = { ...current };
+        delete next[interviewerFocusedTurn.id];
+        return next;
+      });
+      setFocusedInterviewerTurnId(payload.answeredTurn.id);
+      setInterviewerDiscussionParentId(null);
+      setInterviewerAnswerText("");
+      await loadSessions();
+      setToast("自由讨论卡已归属到主问题。");
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "自由讨论归属失败");
     } finally {
       setBusy(null);
     }
@@ -2449,6 +2651,8 @@ export default function Home() {
       );
       setInterviewerSession(payload.session);
       setInterviewerSummary(payload.summary);
+      setInterviewerDraftAnswers({});
+      setInterviewerDiscussionParentId(null);
       await Promise.all([loadSessions(), loadReviews()]);
       setToast("面试官 Agent 已生成评分和复盘。");
     } catch (error) {
@@ -2504,9 +2708,9 @@ export default function Home() {
         body: JSON.stringify({ status }),
       });
       await Promise.all([loadReviews(), loadDaily()]);
-      setToast(status === "done" ? "复盘卡已完成。" : "复盘卡状态已更新。");
+      setToast(status === "done" ? "报告动作已完成。" : "报告动作状态已更新。");
     } catch (error) {
-      setToast(error instanceof Error ? error.message : "复盘卡更新失败");
+      setToast(error instanceof Error ? error.message : "报告动作更新失败");
     } finally {
       setBusy(null);
     }
@@ -2524,7 +2728,7 @@ export default function Home() {
       }
       await Promise.all([loadReviews(), loadSprints(), loadDaily()]);
       setActiveTab("sprint");
-      setToast("已把复盘卡转成冲刺任务。");
+      setToast("已转成冲刺任务。");
     } catch (error) {
       setToast(error instanceof Error ? error.message : "生成复盘任务失败");
     } finally {
@@ -2535,11 +2739,7 @@ export default function Home() {
   async function handleExportData() {
     setBusy("export");
     try {
-      const response = await fetch("/api/export");
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(payload?.error || "导出失败");
-      }
+      const payload = await exportWorkspaceData();
       const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -2560,9 +2760,7 @@ export default function Home() {
   async function handleSeedQuestionBank() {
     setBusy("seed-bank");
     try {
-      const payload = await requestJson<{ created: number; skipped: number; total: number }>("/api/question-bank/seed", {
-        method: "POST",
-      });
+      const payload = await seedQuestionBank();
       await Promise.all([loadKnowledge(), loadDaily()]);
       setToast(`已导入 ${payload.created} 题，跳过 ${payload.skipped} 题。`);
     } catch (error) {
@@ -2699,375 +2897,86 @@ export default function Home() {
 
   /* ─── Render ────────────────────────────────────────────────────────────── */
 
+  if (!hasRestoredShellState) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <LoadingSpinner />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Topbar activeTab={activeTab} onTabChange={setActiveTab} onRefresh={() => void refreshAll()} />
 
-      <main className="mx-auto max-w-[1680px] px-4 py-5 lg:px-5 lg:py-6">
-        {/* Hero Banner */}
-        <div className={cn("mb-5 overflow-hidden rounded-2xl p-5 text-white shadow-lg", heroGradientCls)}>
-          <div className="flex items-start">
-            <div className="max-w-2xl">
-              <p className="text-sm font-medium uppercase tracking-wider text-white/80">Interview AI</p>
-              <h1 className="mt-1 text-2xl font-bold">{pageLabels[activeTab]}</h1>
-            </div>
+      <main className="mx-auto max-w-[1680px] px-4 py-5 lg:px-6 lg:py-6">
+        {(isInitialLoading || initialLoadErrors.length > 0) && (
+          <div className="mb-4 rounded-2xl border border-border bg-surface p-4 shadow-sm">
+            {isInitialLoading ? (
+              <LoadingSpinner />
+            ) : (
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold text-foreground">部分模块没有加载完整</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    这通常是后端接口或本地服务暂时不可用导致的，页面会保留已加载的数据。
+                  </p>
+                  <div className="mt-2 grid gap-1 text-xs text-muted-foreground">
+                    {initialLoadErrors.slice(0, 4).map((error) => (
+                      <span key={error}>{error}</span>
+                    ))}
+                  </div>
+                </div>
+                <button className={btnSecondary} type="button" onClick={() => void refreshAll()}>
+                  <RefreshCcw size={15} /> 重新加载
+                </button>
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
         {/* ─── Applications ─── */}
         {activeTab === "applications" && (
-          <div className="grid gap-4">
-            <Panel title="求职机会管道" icon={<BriefcaseBusiness size={16} />}>
-              <div className="grid gap-4">
-                <div className="grid gap-3 md:grid-cols-4">
-                  <MetricCard label="活跃机会" value={applicationMetrics?.active ?? applications.filter((item) => !item.archived).length} icon={<BriefcaseBusiness size={16} />} />
-                  <MetricCard label="平均匹配" value={`${applicationMetrics?.averageMatchScore ?? 0}%`} icon={<Gauge size={16} />} />
-                  <MetricCard label="已归档" value={applicationMetrics?.archived ?? 0} icon={<ClipboardList size={16} />} />
-                  <MetricCard label="今日下一步" value={applications.filter((item) => item.followUpAt && new Date(item.followUpAt).toDateString() === new Date().toDateString()).length} icon={<CalendarDays size={16} />} />
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    className="min-w-[260px] flex-1 rounded-lg border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
-                    placeholder="搜索公司、岗位、地点、备注"
-                    value={applicationFilters.q}
-                    onChange={(e) => setApplicationFilters({ ...applicationFilters, q: e.target.value })}
-                  />
-                  <select
-                    className={compactSelectCls}
-                    value={applicationFilters.sort}
-                    onChange={(e) => {
-                      const next = { ...applicationFilters, sort: e.target.value };
-                      setApplicationFilters(next);
-                      void loadApplications(next);
-                    }}
-                  >
-                    <option value="priority">按优先级</option>
-                    <option value="followUp">按跟进日</option>
-                    <option value="updated">按更新时间</option>
-                  </select>
-                  <select
-                    className={compactSelectCls}
-                    value={applicationFilters.archived}
-                    onChange={(e) => {
-                      const next = { ...applicationFilters, archived: e.target.value };
-                      setApplicationFilters(next);
-                      void loadApplications(next);
-                    }}
-                  >
-                    <option value="false">只看活跃</option>
-                    <option value="true">只看归档</option>
-                    <option value="">全部机会</option>
-                  </select>
-                  <button className={btnSecondary} type="button" onClick={() => void loadApplications(applicationFilters)}>
-                    <Search size={15} /> 搜索
-                  </button>
-                  <button className={btnPrimary} type="button" onClick={() => {
-                    setApplicationDetailTab("overview");
-                    setSelectedApplicationId(null);
-                  }}>
-                    <Plus size={15} /> 新增岗位
-                  </button>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    className={cn("rounded-full border px-3 py-1.5 text-sm", !applicationFilters.stage ? "border-zinc-900 bg-zinc-900 text-white" : "border-border bg-surface hover:bg-slate-50")}
-                    onClick={() => {
-                      const next = { ...applicationFilters, stage: "" };
-                      setApplicationFilters(next);
-                      void loadApplications(next);
-                    }}
-                  >
-                    全部 {applicationMetrics?.active ?? applications.length}
-                  </button>
-                  {applicationStageOrder.map((stage) => (
-                    <button
-                      key={stage}
-                      type="button"
-                      className={cn("rounded-full border px-3 py-1.5 text-sm", applicationFilters.stage === stage ? "border-zinc-900 bg-zinc-900 text-white" : "border-border bg-surface hover:bg-slate-50")}
-                      onClick={() => {
-                        const next = { ...applicationFilters, stage };
-                        setApplicationFilters(next);
-                        void loadApplications(next);
-                      }}
-                    >
-                      {applicationStageLabels[stage]} {applicationMetrics?.byStage?.[stage] ?? applications.filter((item) => item.stage === stage).length}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-                  <div className="grid grid-cols-[1.35fr_130px_100px_120px_110px_110px_1.2fr] gap-3 border-b border-border bg-slate-50 px-4 py-2 text-xs font-semibold text-muted-foreground max-xl:hidden">
-                    <span>公司 / 岗位</span><span>状态</span><span>匹配</span><span>薪资</span><span>地点</span><span>跟进</span><span>下一步</span>
-                  </div>
-                  <div className="max-h-[420px] overflow-auto">
-                    {applications.length === 0 ? (
-                      <div className="p-8 text-center text-sm text-muted-foreground">暂无求职机会，先保存一个岗位，管道就转起来了。</div>
-                    ) : (
-                      applications.map((application) => {
-                        const score = application.matchReport?.matchScore ?? 0;
-                        const salary = application.salaryMinK || application.salaryMaxK
-                          ? `${application.salaryMinK ?? "-"}-${application.salaryMaxK ?? "-"}K`
-                          : application.salaryK ? `${application.salaryK}K` : "-";
-                        return (
-                          <button
-                            key={application.id}
-                            type="button"
-                            onClick={() => setSelectedApplicationId(application.id)}
-                            className={cn(
-                              "grid w-full gap-3 border-b border-border px-4 py-3 text-left text-sm transition-colors last:border-b-0 xl:grid-cols-[1.35fr_130px_100px_120px_110px_110px_1.2fr]",
-                              selectedApplication?.id === application.id ? "bg-zinc-50" : "bg-surface hover:bg-slate-50",
-                            )}
-                          >
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <strong className="truncate text-slate-950">{application.company?.name ?? "未填写公司"}</strong>
-                                {application.archived && <Pill variant="accent">归档</Pill>}
-                                {application.priority >= 80 && <Pill variant="warn">高优先级</Pill>}
-                              </div>
-                              <p className="mt-1 truncate text-xs text-muted-foreground">{application.roleName} · {application.level} · {application.source || "手动录入"}</p>
-                            </div>
-                            <select
-                              className={cn(inputCls, "h-9 py-1 text-xs")}
-                              value={application.stage}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => void handleUpdateApplication(application.id, { stage: e.target.value as ApplicationStage })}
-                            >
-                              {applicationStageOrder.map((stage) => <option key={stage} value={stage}>{applicationStageLabels[stage]}</option>)}
-                            </select>
-                            <div className="flex items-center gap-2">
-                              <span className="font-semibold">{score || "-"}</span>
-                              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                                <div className="h-full rounded-full bg-zinc-900" style={{ width: `${score}%` }} />
-                              </div>
-                            </div>
-                            <span className="text-slate-600">{salary}</span>
-                            <span className="truncate text-slate-600">{application.location || "-"}</span>
-                            <input
-                              className={cn(inputCls, "h-9 py-1 text-xs")}
-                              type="date"
-                              value={toDateInputValue(application.followUpAt)}
-                              onClick={(e) => e.stopPropagation()}
-                              onChange={(e) => void handleUpdateApplication(application.id, { followUpAt: e.target.value || null })}
-                            />
-                            <span className="truncate text-xs text-muted-foreground">{application.nextAction || application.progress.nextActions[0] || "生成匹配报告"}</span>
-                          </button>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              </div>
-            </Panel>
-
-            <div className="grid gap-4 xl:grid-cols-[minmax(340px,440px)_1fr]">
-              <Panel title="新增 / 保存岗位" icon={<Plus size={16} />}>
-                <div className="grid gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="公司"><input className={inputCls} placeholder="例如 字节跳动" value={applicationForm.companyName} onChange={(e) => setApplicationForm({ ...applicationForm, companyName: e.target.value })} /></Field>
-                    <Field label="岗位"><input className={inputCls} placeholder="例如 AI 后端工程师" value={applicationForm.roleName} onChange={(e) => setApplicationForm({ ...applicationForm, roleName: e.target.value })} /></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="级别"><select className={inputCls} value={applicationForm.level} onChange={(e) => setApplicationForm({ ...applicationForm, level: e.target.value as CandidateSeniority })}>{seniorityOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-                    <Field label="阶段"><select className={inputCls} value={applicationForm.stage} onChange={(e) => setApplicationForm({ ...applicationForm, stage: e.target.value as ApplicationStage })}>{applicationStageOrder.map((stage) => <option key={stage} value={stage}>{applicationStageLabels[stage]}</option>)}</select></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="薪资下限 K"><input className={inputCls} type="number" min={0} max={300} value={applicationForm.salaryMinK} onChange={(e) => setApplicationForm({ ...applicationForm, salaryMinK: Number(e.target.value), salaryK: Number(e.target.value) })} /></Field>
-                    <Field label="薪资上限 K"><input className={inputCls} type="number" min={0} max={300} value={applicationForm.salaryMaxK} onChange={(e) => setApplicationForm({ ...applicationForm, salaryMaxK: Number(e.target.value) })} /></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="地点"><input className={inputCls} placeholder="北京 / 远程" value={applicationForm.location} onChange={(e) => setApplicationForm({ ...applicationForm, location: e.target.value })} /></Field>
-                    <Field label="来源"><input className={inputCls} placeholder="Boss / 内推 / 官网" value={applicationForm.source} onChange={(e) => setApplicationForm({ ...applicationForm, source: e.target.value })} /></Field>
-                  </div>
-                  <Field label="岗位链接"><input className={inputCls} placeholder="https://..." value={applicationForm.jobUrl} onChange={(e) => setApplicationForm({ ...applicationForm, jobUrl: e.target.value })} /></Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="关联简历"><select className={inputCls} value={applicationForm.resumeProfileId} onChange={(e) => setApplicationForm({ ...applicationForm, resumeProfileId: e.target.value })}><option value="">暂不关联</option>{resumes.map((resume) => <option key={resume.id} value={resume.id}>{resume.title}</option>)}</select></Field>
-                    <Field label="关联 JD"><select className={inputCls} value={applicationForm.jobTargetId} onChange={(e) => setApplicationForm({ ...applicationForm, jobTargetId: e.target.value })}><option value="">暂不关联</option>{jobTargets.map((target) => <option key={target.id} value={target.id}>{target.company?.name ? `${target.company.name} · ` : ""}{target.roleName}</option>)}</select></Field>
-                  </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <Field label="投递日"><input className={inputCls} type="date" value={applicationForm.appliedAt} onChange={(e) => setApplicationForm({ ...applicationForm, appliedAt: e.target.value })} /></Field>
-                    <Field label="跟进日"><input className={inputCls} type="date" value={applicationForm.followUpAt} onChange={(e) => setApplicationForm({ ...applicationForm, followUpAt: e.target.value })} /></Field>
-                    <Field label="截止日"><input className={inputCls} type="date" value={applicationForm.deadlineAt} onChange={(e) => setApplicationForm({ ...applicationForm, deadlineAt: e.target.value })} /></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="联系人"><input className={inputCls} value={applicationForm.contactName} onChange={(e) => setApplicationForm({ ...applicationForm, contactName: e.target.value })} /></Field>
-                    <Field label="邮箱"><input className={inputCls} value={applicationForm.contactEmail} onChange={(e) => setApplicationForm({ ...applicationForm, contactEmail: e.target.value })} /></Field>
-                  </div>
-                  <Field label="JD 原文快照"><textarea className={textareaCls + " min-h-[120px]"} placeholder="粘贴 JD，后续匹配和简历定制都从这里开始。" value={applicationForm.jdSnapshot} onChange={(e) => setApplicationForm({ ...applicationForm, jdSnapshot: e.target.value })} /></Field>
-                  <Field label="备注"><textarea className={textareaCls + " min-h-[76px]"} placeholder="投递渠道、面试轮次、准备重点。" value={applicationForm.note} onChange={(e) => setApplicationForm({ ...applicationForm, note: e.target.value })} /></Field>
-                  <button className={btnPrimary} type="button" onClick={() => void handleCreateApplication()} disabled={busy === "application-create"}><Plus size={15} /> 创建机会</button>
-                </div>
-              </Panel>
-
-              <Panel title="岗位详情工作台" icon={<Target size={16} />}>
-                {!selectedApplication ? (
-                  <div className="rounded-xl border border-dashed border-border p-10 text-center text-sm text-muted-foreground">选择一个机会查看 Teal 式准备闭环。</div>
-                ) : (
-                  <div className="grid gap-4">
-                    <div className={cn("rounded-2xl border border-border p-4", softGradientCls)}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Pill variant="brand">{applicationStageLabels[selectedApplication.stage] ?? selectedApplication.stage}</Pill>
-                            <Pill variant="accent">优先级 {selectedApplication.priority}</Pill>
-                            {selectedApplication.jobUrl && <a className="inline-flex items-center gap-1 text-xs font-medium text-slate-700 hover:underline" href={selectedApplication.jobUrl} target="_blank" rel="noreferrer"><ExternalLink size={13} /> 岗位链接</a>}
-                          </div>
-                          <h3 className="mt-3 text-xl font-semibold">{selectedApplication.company?.name ?? "未填写公司"} · {selectedApplication.roleName}</h3>
-                          <p className="mt-1 text-sm text-slate-600">{selectedApplication.location || "未填写地点"} · {selectedApplication.source || "手动录入"} · {formatDate(selectedApplication.updatedAt)}</p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <button className={btnSecondary} type="button" onClick={() => void handleMatchApplication(selectedApplication.id)} disabled={busy === `application-match-${selectedApplication.id}`}><Sparkles size={15} /> 刷新匹配</button>
-                          <button className={btnSecondary} type="button" onClick={() => void handleCreateResumeVersion(selectedApplication.id)} disabled={busy === `resume-version-create-${selectedApplication.id}`}><Copy size={15} /> 创建简历版本</button>
-                          <button className={btnPrimary} type="button" onClick={() => setActiveTab("interview")}><MessageSquareText size={15} /> 去模拟</button>
-                        </div>
-                      </div>
-                      <div className="mt-4 grid gap-3 md:grid-cols-5">
-                        <ScoreCard label="准备度" value={selectedApplication.progress.overall} />
-                        <ScoreCard label="匹配分" value={selectedApplication.matchReport?.matchScore ?? 0} />
-                        <ScoreCard label="简历" value={selectedApplication.progress.resumeReady} />
-                        <ScoreCard label="JD" value={selectedApplication.progress.jdReady} />
-                        <ScoreCard label="模拟" value={selectedApplication.progress.mockReady} />
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {([
-                        ["overview", "概览"],
-                        ["jd", "JD"],
-                        ["match", "匹配"],
-                        ["resume", "简历版本"],
-                        ["prep", "面试准备"],
-                        ["activity", "活动"],
-                      ] as Array<[ApplicationDetailTab, string]>).map(([tab, label]) => (
-                        <button key={tab} type="button" className={cn("rounded-full border px-3 py-1.5 text-sm", applicationDetailTab === tab ? "border-zinc-900 bg-zinc-900 text-white" : "border-border bg-surface hover:bg-slate-50")} onClick={() => setApplicationDetailTab(tab)}>{label}</button>
-                      ))}
-                    </div>
-
-                    {applicationDetailTab === "overview" && (
-                      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-                        <div className="rounded-xl border border-border bg-surface p-4">
-                          <h4 className="text-sm font-semibold">下一步动作</h4>
-                          <p className="mt-2 text-sm leading-relaxed text-slate-600">{selectedApplication.nextAction || selectedApplication.progress.nextActions[0] || "先补齐 JD，再生成一次匹配报告。"}</p>
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                            {selectedApplication.progress.nextActions.map((action) => <div key={action} className="rounded-lg border border-border bg-slate-50 px-3 py-2 text-sm text-slate-600">{action}</div>)}
-                          </div>
-                        </div>
-                        <div className="rounded-xl border border-border bg-surface p-4">
-                          <h4 className="text-sm font-semibold">Inline 更新</h4>
-                          <div className="mt-3 grid gap-3">
-                            <Field label="阶段"><select className={inputCls} value={selectedApplication.stage} onChange={(e) => void handleUpdateApplication(selectedApplication.id, { stage: e.target.value as ApplicationStage })}>{applicationStageOrder.map((stage) => <option key={stage} value={stage}>{applicationStageLabels[stage]}</option>)}</select></Field>
-                            <Field label="优先级"><input className={inputCls} type="number" min={0} max={100} value={selectedApplication.priority} onChange={(e) => void handleUpdateApplication(selectedApplication.id, { priority: Number(e.target.value) })} /></Field>
-                            <Field label="备注"><textarea className={textareaCls + " min-h-[80px]"} defaultValue={selectedApplication.note ?? ""} onBlur={(e) => void handleUpdateApplication(selectedApplication.id, { note: e.target.value })} /></Field>
-                            <button className={btnGhost} type="button" onClick={() => void handleUpdateApplication(selectedApplication.id, { archived: !selectedApplication.archived })}>{selectedApplication.archived ? "恢复活跃" : "归档机会"}</button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {applicationDetailTab === "jd" && (
-                      <div className="grid gap-3">
-                        <textarea className={textareaCls + " min-h-[360px]"} placeholder="粘贴或编辑 JD 原文快照。" value={applicationJdDraft} onChange={(e) => setApplicationJdDraft(e.target.value)} />
-                        <div className="flex flex-wrap gap-2">
-                          <button className={btnPrimary} type="button" onClick={() => void handleSaveApplicationJd()}><Save size={15} /> 保存 JD</button>
-                          <button className={btnSecondary} type="button" onClick={() => void handleMatchApplication(selectedApplication.id)}><Sparkles size={15} /> 保存后生成匹配</button>
-                          <button className={btnGhost} type="button" onClick={() => setApplicationJdDraft(selectedApplication.jobTarget?.rawJd ?? "")}>使用关联 JD</button>
-                        </div>
-                      </div>
-                    )}
-
-                    {applicationDetailTab === "match" && (
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <div className="rounded-xl border border-border bg-surface p-4">
-                          <div className="flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold">Included Keywords</h4>
-                            <Pill variant="brand">{selectedMatchReport?.includedKeywords.length ?? 0}</Pill>
-                          </div>
-                          <div className="mt-3 grid gap-2">
-                            {(selectedMatchReport?.includedKeywords ?? []).slice(0, 24).map((item) => <KeywordRow key={`${item.category}-${item.keyword}`} item={item} />)}
-                            {!selectedMatchReport && <p className="text-sm text-muted-foreground">还没有匹配报告，先点击“刷新匹配”。</p>}
-                          </div>
-                        </div>
-                        <div className="rounded-xl border border-border bg-surface p-4">
-                          <div className="flex items-center justify-between gap-2">
-                            <h4 className="text-sm font-semibold">Missing Keywords</h4>
-                            <Pill variant="warn">{selectedMatchReport?.missingKeywords.length ?? 0}</Pill>
-                          </div>
-                          <div className="mt-3 grid gap-2">
-                            {(selectedMatchReport?.missingKeywords ?? []).slice(0, 18).map((item) => (
-                              <div key={`${item.category}-${item.keyword}`} className="rounded-lg border border-border bg-slate-50 p-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <KeywordRow item={item} />
-                                  {primaryResumeVersion && <button className={btnGhost} type="button" onClick={() => void handleGenerateResumeBullet(primaryResumeVersion.id, item.keyword)}>生成 bullet</button>}
-                                </div>
-                              </div>
-                            ))}
-                            {selectedMatchReport?.summary && <p className="rounded-lg border border-border bg-stone-50 p-3 text-sm leading-relaxed text-slate-600">{selectedMatchReport.summary}</p>}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {applicationDetailTab === "resume" && (
-                      <div className="grid gap-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm text-muted-foreground">应用内版本不会覆盖原始简历；AI 生成内容先进入候选区。</p>
-                          <button className={btnPrimary} type="button" onClick={() => void handleCreateResumeVersion(selectedApplication.id)}><Plus size={15} /> 创建定制版本</button>
-                        </div>
-                        {resumeVersions.length === 0 ? (
-                          <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">还没有简历版本。创建一份后可以 Auto-Select 和生成 bullet。</div>
-                        ) : (
-                          resumeVersions.map((version) => (
-                            <article key={version.id} className="rounded-xl border border-border bg-surface p-4">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div>
-                                  <div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold">{version.title}</h4>{version.isPrimary && <Pill variant="brand">Primary</Pill>}<Pill variant="accent">{version.matchReport?.matchScore ?? 0} 分</Pill></div>
-                                  <p className="mt-1 text-xs text-muted-foreground">{version.blocks.filter((block) => block.enabled).length}/{version.blocks.length} 个内容块启用 · {formatDate(version.updatedAt)}</p>
-                                </div>
-                                <button className={btnSecondary} type="button" onClick={() => void handleAutoSelectResumeVersion(version.id)} disabled={busy === `resume-version-auto-${version.id}`}><ListChecks size={15} /> Auto-Select</button>
-                              </div>
-                              <div className="mt-3 grid gap-2 lg:grid-cols-2">
-                                {version.blocks.slice(0, 8).map((block) => <div key={block.id} className={cn("rounded-lg border p-3", block.enabled ? "border-zinc-300 bg-zinc-50" : "border-border bg-surface opacity-60")}><div className="flex items-center justify-between gap-2"><strong className="text-xs">{block.title}</strong><Pill>{block.type}</Pill></div><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">{block.content}</p></div>)}
-                              </div>
-                              {Array.isArray(version.suggestions?.generatedBullets) && (
-                                <TextList values={(version.suggestions.generatedBullets as Array<{ bullet?: string }>).map((item) => item.bullet ?? "").filter(Boolean).slice(-4)} />
-                              )}
-                            </article>
-                          ))
-                        )}
-                      </div>
-                    )}
-
-                    {applicationDetailTab === "prep" && (
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        <Panel title="来源可信材料" icon={<FileText size={16} />}>
-                          <div className="grid gap-3">
-                            <div className="grid grid-cols-2 gap-3">
-                              <Field label="来源类型"><select className={inputCls} value={sourceForm.sourceType} onChange={(e) => setSourceForm({ ...sourceForm, sourceType: e.target.value as SourceForm["sourceType"] })}><option value="note">备注</option><option value="resume">简历</option><option value="jd">JD</option><option value="article">技术文章</option><option value="experience">面经</option><option value="github">GitHub</option></select></Field>
-                              <Field label="标题"><input className={inputCls} value={sourceForm.title} placeholder="例如 JD 原文 / README 摘要" onChange={(e) => setSourceForm({ ...sourceForm, title: e.target.value })} /></Field>
-                            </div>
-                            <textarea className={textareaCls + " min-h-[140px]"} placeholder="粘贴可引用的来源材料，Agent 输出会带 evidence。" value={sourceForm.content} onChange={(e) => setSourceForm({ ...sourceForm, content: e.target.value })} />
-                            <button className={btnSecondary} type="button" onClick={() => void handleCreateSource()} disabled={busy === "source-create"}><Save size={15} /> 保存来源</button>
-                            <div className="grid gap-2">{sourceDocuments.length === 0 ? <div className="rounded-xl border border-dashed border-border p-4 text-center text-sm text-muted-foreground">还没有来源材料。</div> : sourceDocuments.map((source) => <article key={source.id} className="rounded-xl border border-border bg-surface p-3"><div className="flex items-center justify-between gap-2"><strong className="text-sm">{source.title}</strong><Pill>{source.sourceType}</Pill></div><p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{source.content}</p></article>)}</div>
-                          </div>
-                        </Panel>
-                        <Panel title="Agent 运行结果" icon={<Sparkles size={16} />}>
-                          {!agentRunResult ? <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">点击 Agent 后展示 output / execution / evidence。</div> : <div className="grid gap-4"><div className="rounded-xl border border-border bg-surface p-4"><div className="flex items-start justify-between gap-3"><div><h4 className="text-sm font-semibold">{String(agentRunResult.output.title ?? "Agent 输出")}</h4>{renderAgentSourceMix(agentRunResult.output.sourceMix)}</div><Pill variant={agentRunResult.execution.usedFallback ? "warn" : "brand"}>{agentRunResult.execution.usedFallback ? "fallback" : "success"}</Pill></div><p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{String(agentRunResult.output.summary ?? "")}</p></div>{Array.isArray(agentRunResult.output.highlights) && agentRunResult.output.highlights.length > 0 && <DataGroup title="关键亮点"><TextList values={(agentRunResult.output.highlights as string[]).filter(Boolean)} /></DataGroup>}{Array.isArray(agentRunResult.output.risks) && agentRunResult.output.risks.length > 0 && <DataGroup title="风险提醒"><TextList values={(agentRunResult.output.risks as string[]).filter(Boolean)} /></DataGroup>}{Array.isArray(agentRunResult.output.nextActions) && agentRunResult.output.nextActions.length > 0 && <DataGroup title="下一步动作"><TextList values={(agentRunResult.output.nextActions as string[]).filter(Boolean)} /></DataGroup>}{Array.isArray(agentRunResult.output.generatedArtifacts) && agentRunResult.output.generatedArtifacts.length > 0 && <DataGroup title="产物清单"><TextList values={(agentRunResult.output.generatedArtifacts as string[]).filter(Boolean)} /></DataGroup>}{Array.isArray(agentRunResult.output.githubSignals) && agentRunResult.output.githubSignals.length > 0 && <DataGroup title="GitHub 信号"><TextList values={(agentRunResult.output.githubSignals as string[]).filter(Boolean)} /></DataGroup>}<DataGroup title="执行步骤"><TextList values={agentRunResult.execution.steps} /></DataGroup><DataGroup title="引用证据">{agentRunResult.evidence.length === 0 ? <p className="text-sm text-muted-foreground">暂无 evidence，当前内容应视为 AI 推断。</p> : <div className="grid gap-2">{agentRunResult.evidence.map((item, index) => <article key={`${item.sourceId}-${item.chunkId}-${index}`} className="rounded-lg border border-border bg-slate-50 p-3"><p className="text-sm leading-relaxed text-slate-600">“{item.quote}”</p><p className="mt-1 text-xs text-muted-foreground">{item.reason}</p></article>)}</div>}</DataGroup></div>}
-                        </Panel>
-                      </div>
-                    )}
-
-                    {applicationDetailTab === "activity" && (
-                      <div className="grid gap-2">
-                        {(selectedApplication.activities ?? []).length === 0 ? <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">暂无活动记录。</div> : (selectedApplication.activities ?? []).map((activity) => <article key={activity.id} className="rounded-xl border border-border bg-surface p-3"><div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-sm">{activity.title}</strong><span className="text-xs text-muted-foreground">{formatDate(activity.createdAt)}</span></div>{activity.detail && <p className="mt-1 text-sm text-slate-600">{activity.detail}</p>}</article>)}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </Panel>
-            </div>
-          </div>
+          <ApplicationsTab
+            busy={busy}
+            nowTs={nowTs}
+            applications={applications}
+            applicationMetrics={applicationMetrics}
+            applicationFilters={applicationFilters}
+            applicationForm={applicationForm}
+            applicationDetailTab={applicationDetailTab}
+            applicationJdDraft={applicationJdDraft}
+            selectedApplication={selectedApplication}
+            selectedMatchReport={selectedMatchReport}
+            primaryResumeVersion={primaryResumeVersion}
+            resumeVersions={resumeVersions}
+            sourceDocuments={sourceDocuments}
+            sourceForm={sourceForm}
+            agentRunResult={agentRunResult}
+            resumes={resumes}
+            jobTargets={jobTargets}
+            seniorityOptions={seniorityOptions}
+            stageLabels={applicationStageLabels}
+            stageOrder={applicationStageOrder}
+            onFiltersChange={setApplicationFilters}
+            onLoadApplications={(nextFilters) => void loadApplications(nextFilters)}
+            onSelectApplication={setSelectedApplicationId}
+            onApplicationFormChange={setApplicationForm}
+            onCreateApplication={() => void handleCreateApplication()}
+            onUpdateApplication={(id, patch) => void handleUpdateApplication(id, patch)}
+            onDetailTabChange={setApplicationDetailTab}
+            onJdDraftChange={setApplicationJdDraft}
+            onSaveApplicationJd={() => void handleSaveApplicationJd()}
+            onMatchApplication={(id) => void handleMatchApplication(id)}
+            onCreateResumeVersion={(id) => void handleCreateResumeVersion(id)}
+            onAutoSelectResumeVersion={(id) => void handleAutoSelectResumeVersion(id)}
+            onGenerateResumeBullet={(versionId, keyword) => void handleGenerateResumeBullet(versionId, keyword)}
+            onSourceFormChange={setSourceForm}
+            onCreateSource={() => void handleCreateSource()}
+            onActiveTabChange={setActiveTab}
+          />
         )}
 
         {/* ─── Agents ─── */}
@@ -3083,7 +2992,7 @@ export default function Home() {
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <h4 className="text-sm font-semibold">{agent.displayName ?? agent.agentName}</h4>
-                          <p className="mt-1 text-xs text-muted-foreground">{agent.agentName} · {agent.model ?? "GLM-5.1"}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{agent.agentName} · {agent.model ?? "deepseek-v4-pro"}</p>
                         </div>
                         <Pill variant={agent.enabled ? "brand" : "warn"}>{agent.enabled ? "enabled" : "disabled"}</Pill>
                       </div>
@@ -3121,261 +3030,73 @@ export default function Home() {
 
         {/* ─── Records ─── */}
         {activeTab === "records" && (
-          <div className="grid gap-4">
-            <Panel title="回顾记录" icon={<BookOpen size={16} />}>
-              <div className="grid gap-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-sm font-semibold">记录库</h4>
-                    <p className="mt-0.5 text-xs text-muted-foreground">平时直接浏览和筛选记录，需要新增时再进入 Agent 模块。</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button className={btnPrimary} type="button" onClick={openRecordAgentEditor}>
-                      <Plus size={15} /> 新增记录
-                    </button>
-                    <button className={btnSecondary} type="button" onClick={() => void handleSeedQuestionBank()} disabled={busy === "seed-bank"}>
-                      <Sparkles size={15} /> 导入内置题库
-                    </button>
-                    <button className={btnGhost} type="button" onClick={() => void handleExportData()} disabled={busy === "export"}>
-                      <Download size={15} /> 导出
-                    </button>
-                  </div>
-                </div>
-                <div className="grid gap-3">
-                  <div className="grid gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <input className={inputCls + " min-w-[220px] flex-1"} placeholder="搜索题目、答案、提示或标签" value={filters.q}
-                        onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
-                      <button className={btnSecondary} type="button" onClick={() => void loadKnowledge()}>
-                        <Search size={15} /> 搜索
-                      </button>
-                      <button className={btnGhost} type="button" onClick={handleStartReview}>
-                        <Play size={15} /> 复习
-                      </button>
-                    </div>
-                    <div className="rounded-xl border border-border bg-slate-50 p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <h4 className="text-sm font-semibold">按标签筛选</h4>
-                          <p className="mt-0.5 text-xs text-muted-foreground">支持按语言、技术栈和岗位方向快速切片，比如 `C++`、`后端开发`、`前端开发`、`产品设计`。</p>
-                        </div>
-                        {recordTagFilter && (
-                          <button className={btnGhost} type="button" onClick={() => setRecordTagFilter("")}>
-                            清空标签
-                          </button>
-                        )}
-                      </div>
-                      <div className="mt-3 grid gap-3">
-                        {recordTagGroups.map((group) => (
-                          <div key={group.title}>
-                            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{group.title}</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {group.tags.map((tag) => (
-                                <button
-                                  key={tag}
-                                  type="button"
-                                  onClick={() => {
-                                    const nextTag = recordTagFilter.toLowerCase() === tag.toLowerCase() ? "" : tag;
-                                    setRecordTagFilter(nextTag);
-                                    void loadKnowledge({
-                                      ...filters,
-                                      q: filters.q,
-                                    });
-                                  }}
-                                  className={cn(
-                                    "rounded-full border px-3 py-1.5 text-sm transition-colors",
-                                    recordTagFilter.toLowerCase() === tag.toLowerCase()
-                                      ? "border-primary bg-primary-soft text-primary-hover"
-                                      : "border-border bg-surface text-muted-foreground hover:text-foreground",
-                                  )}
-                                >
-                                  {tag}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>当前结果：{recordCards.length} 条</span>
-                      {recordTagFilter && <Pill variant="accent">标签：{recordTagFilter}</Pill>}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 xl:grid-cols-[minmax(280px,1fr)_minmax(340px,460px)]">
-                    <div className="grid max-h-[680px] gap-3 overflow-auto pr-1">
-                      {recordCards.length === 0 ? (
-                        <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">暂无记录，先在左侧贴一段内容保存。</div>
-                      ) : (
-                        recordCards.map((card) => (
-                          <button
-                            key={card.id}
-                            type="button"
-                            onClick={() => { setSelectedKnowledgeId(card.id); setReviewMode(false); }}
-                            className={cn(
-                              "rounded-xl border bg-surface p-4 text-left shadow-sm transition-colors",
-                              selectedKnowledgeCard?.id === card.id ? "border-primary ring-2 ring-primary/15" : "border-border hover:bg-slate-50",
-                            )}
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <h4 className="text-sm font-semibold leading-snug">{card.question}</h4>
-                              <Pill variant={card.mastery >= 3 ? "brand" : "warn"}>{masteryLabels[card.mastery] ?? "未学"}</Pill>
-                            </div>
-                            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground">{card.answer}</p>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {card.topic && <Pill>{card.topic.name}</Pill>}
-                              {card.tags.slice(0, 3).map((tag) => <Pill key={tag}>{tag}</Pill>)}
-                            </div>
-                          </button>
-                        ))
-                      )}
-                    </div>
-
-                    <div className="rounded-xl border border-border bg-slate-50 p-4">
-                      {!selectedKnowledgeCard ? (
-                        <div className="py-8 text-center text-sm text-muted-foreground">选择一条记录查看原文。</div>
-                      ) : (
-                        <div className="grid gap-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <Pill variant="brand">记录详情</Pill>
-                              <h4 className="mt-3 text-base font-semibold leading-snug">{selectedKnowledgeCard.question}</h4>
-                            </div>
-                            <button className={btnGhost} type="button" onClick={() => startKnowledgeEdit(selectedKnowledgeCard)}>
-                              <Pencil size={14} /> 编辑
-                            </button>
-                          </div>
-                          <div className="max-h-[420px] overflow-auto rounded-xl border border-border bg-surface p-4">
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{selectedKnowledgeCard.answer}</p>
-                          </div>
-                          {selectedKnowledgeCard.note && (
-                            <div className="rounded-xl border border-border bg-surface p-4">
-                              <h5 className="text-sm font-semibold">面试提示</h5>
-                              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{selectedKnowledgeCard.note}</p>
-                            </div>
-                          )}
-                          <div className="flex flex-wrap gap-1.5">
-                            {selectedKnowledgeCard.topic && <Pill>{selectedKnowledgeCard.topic.name}</Pill>}
-                            {selectedKnowledgeCard.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
-                          </div>
-                          <div className="grid grid-cols-2 gap-3">
-                            <ScoreCard label="掌握度" value={selectedKnowledgeCard.mastery} />
-                            <ScoreCard label="复习次数" value={selectedKnowledgeCard.reviewCount} />
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <button className={btnPrimary} type="button" onClick={() => void updateKnowledgeProgress(selectedKnowledgeCard.id, Math.min(selectedKnowledgeCard.mastery + 1, 4), true)}>
-                              <CheckCircle2 size={15} /> 已回顾
-                            </button>
-                            <button className={btnSecondary} type="button" onClick={() => void updateKnowledgeProgress(selectedKnowledgeCard.id, Math.max(selectedKnowledgeCard.mastery - 1, 0), true)}>
-                              还不熟
-                            </button>
-                            <button className={btnGhost} type="button" onClick={() => setActiveTab("review")}>
-                              <ClipboardList size={15} /> 复盘
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </Panel>
-
-            <Panel title="辅助能力" icon={<Gauge size={16} />}>
-              <div className="grid gap-3 md:grid-cols-3">
-                <button className="rounded-xl border border-border p-4 text-left shadow-sm hover:bg-slate-50" type="button" onClick={() => setActiveTab("trends")}>
-                  <h4 className="text-sm font-semibold">学习趋势</h4>
-                  <p className="mt-1 text-sm text-muted-foreground">查看掌握度、复习和面试表现。</p>
-                </button>
-                <button className="rounded-xl border border-border p-4 text-left shadow-sm hover:bg-slate-50" type="button" onClick={() => setActiveTab("sprint")}>
-                  <h4 className="text-sm font-semibold">冲刺任务</h4>
-                  <p className="mt-1 text-sm text-muted-foreground">把记录和复盘拆成每日动作。</p>
-                </button>
-                <button className="rounded-xl border border-border p-4 text-left shadow-sm hover:bg-slate-50" type="button" onClick={() => setActiveTab("prep")}>
-                  <h4 className="text-sm font-semibold">公司情报</h4>
-                  <p className="mt-1 text-sm text-muted-foreground">面经、公司高频题作为补充入口。</p>
-                </button>
-              </div>
-            </Panel>
-          </div>
+          <RecordsTab
+            busy={busy}
+            filters={filters}
+            recordCards={recordCards}
+            selectedKnowledgeCard={selectedKnowledgeCard}
+            recordTagFilter={recordTagFilter}
+            recordTagGroups={recordTagGroups}
+            onFiltersChange={setFilters}
+            onLoadKnowledge={(nextFilters) => void loadKnowledge(nextFilters)}
+            onRecordTagFilterChange={setRecordTagFilter}
+            onSelectedKnowledgeIdChange={setSelectedKnowledgeId}
+            onOpenRecordAgentEditor={openRecordAgentEditor}
+            onSeedQuestionBank={() => void handleSeedQuestionBank()}
+            onExportData={() => void handleExportData()}
+            onStartKnowledgeEdit={startKnowledgeEdit}
+            onActiveTabChange={setActiveTab}
+          />
         )}
 
         {/* ─── Home ─── */}
         {activeTab === "home" && (
           <div className="grid gap-4">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <MetricCard label="今日任务" value={dailyData?.summary.total ?? 0} icon={<ListChecks size={16} />} />
-              <MetricCard label="待复习题" value={dailyData?.summary.dueKnowledge ?? reviewQueue.length} icon={<BookOpen size={16} />} />
-              <MetricCard label="复盘卡" value={todoReviewCount} icon={<ClipboardList size={16} />} />
+              <MetricCard label="题库记录" value={cards.length} icon={<BookOpen size={16} />} />
+              <MetricCard label="公司面经" value={experiences.length} icon={<Building2 size={16} />} />
+              <MetricCard label="岗位目标" value={jobTargets.length} icon={<Target size={16} />} />
               <MetricCard label="平均模拟分" value={averageInterviewScore || "-"} icon={<Gauge size={16} />} />
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(360px,460px)_1fr]">
-              <Panel title="今日行动" icon={<ListChecks size={16} />}>
+              <Panel title="核心动作" icon={<ListChecks size={16} />}>
                 <div className="grid gap-3">
-                  {(dailyData?.dueCards ?? []).slice(0, 3).map((card) => (
-                    <article key={`home-due-${card.id}`} className="rounded-xl border border-border p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-sm font-semibold leading-snug">{card.question}</h4>
-                        <Pill variant="brand">{card.topic?.name ?? "复习"}</Pill>
+                  {[
+                    { title: "录入公司面经", description: "粘贴原文，生成公司、轮次、题目和标签。", icon: <Building2 size={15} />, action: () => setActiveDialog("experience"), tone: "primary" as const },
+                    { title: "新增题库题目", description: "把八股文或技术文章整理成题目和答案。", icon: <BookOpen size={15} />, action: openRecordAgentEditor },
+                    { title: "解析简历", description: "提取项目、技能和可追问点。", icon: <FileText size={15} />, action: () => setActiveDialog("resume") },
+                    { title: "匹配 JD", description: "生成岗位能力要求和简历缺口。", icon: <Target size={15} />, action: () => setActiveDialog("jd") },
+                    { title: "开始模拟", description: "按公司、JD、简历和题库进入训练。", icon: <Play size={15} />, action: () => setActiveDialog("interview"), tone: "primary" as const },
+                  ].map((item) => (
+                    <button
+                      key={item.title}
+                      className="rounded-xl border border-border bg-surface p-4 text-left shadow-sm transition-colors hover:bg-sky-50"
+                      type="button"
+                      onClick={item.action}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="flex items-center gap-2 text-sm font-semibold">
+                          {item.icon}
+                          {item.title}
+                        </h4>
+                        {item.tone === "primary" && <Pill variant="brand">核心</Pill>}
                       </div>
-                      <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-slate-500">{card.answer}</p>
-                      <div className="mt-3 flex gap-2">
-                        <button className={btnSecondary} type="button" onClick={() => { setSelectedKnowledgeId(card.id); setReviewMode(true); setActiveTab("knowledge"); }}>
-                          <Eye size={14} /> 开始复习
-                        </button>
-                        <button className={btnGhost} type="button" onClick={() => void updateKnowledgeProgress(card.id, Math.min(card.mastery + 1, 4), true)}>
-                          <CheckCircle2 size={14} /> 完成
-                        </button>
-                      </div>
-                    </article>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                    </button>
                   ))}
-                  {(dailyData?.reviewCards ?? []).slice(0, 2).map((card) => (
-                    <article key={`home-review-${card.id}`} className="rounded-xl border border-border p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-sm font-semibold leading-snug">{card.title}</h4>
-                        <Pill variant="warn">复盘</Pill>
-                      </div>
-                      <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{card.suggestion}</p>
-                      <button className={btnGhost + " mt-3"} type="button" onClick={() => setActiveTab("review")}>
-                        <ClipboardList size={14} /> 去处理
-                      </button>
-                    </article>
-                  ))}
-                  {(dailyData?.sprintTasks ?? []).slice(0, 2).map((task) => (
-                    <article key={`home-task-${task.id}`} className="rounded-xl border border-border p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-sm font-semibold leading-snug">{task.title}</h4>
-                        <Pill>Day {task.dayIndex + 1}</Pill>
-                      </div>
-                      <p className="mt-1.5 text-sm leading-relaxed text-slate-500">{task.description}</p>
-                      <button className={btnGhost + " mt-3"} type="button" onClick={() => setActiveTab("sprint")}>
-                        <CalendarDays size={14} /> 看计划
-                      </button>
-                    </article>
-                  ))}
-                  {(!dailyData || dailyData.summary.total === 0) && (
-                    <div className="rounded-xl border border-dashed border-border p-6 text-center">
-                      <p className="text-sm text-muted-foreground">今天还没有任务，先导入题库或创建岗位目标。</p>
-                      <div className="mt-3 flex justify-center gap-2">
-                        <button className={btnSecondary} type="button" onClick={() => setActiveTab("knowledge")}>去题库</button>
-                        <button className={btnPrimary} type="button" onClick={() => setActiveTab("applications")}>建机会</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </Panel>
 
               <div className="grid gap-4">
                 <Panel title="产品工作台" icon={<Gauge size={16} />}>
                   <div className="grid gap-3 md:grid-cols-2">
-                    <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={handleStartReview}>
+                    <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={() => setActiveTab("records")}>
                       <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-semibold">开始一轮复习</h4>
-                        <Pill variant="brand">{reviewQueue.length} 题</Pill>
+                        <h4 className="text-sm font-semibold">维护题库</h4>
+                        <Pill variant="brand">{cards.length} 条</Pill>
                       </div>
-                      <p className="mt-2 text-sm text-muted-foreground">按优先级、掌握度和复习时间自动排序。</p>
+                      <p className="mt-2 text-sm text-muted-foreground">搜索、筛选、编辑真实面试题和参考答案。</p>
                     </button>
                     <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={() => setActiveTab("interview")}>
                       <div className="flex items-center justify-between gap-3">
@@ -3391,12 +3112,12 @@ export default function Home() {
                       </div>
                       <p className="mt-2 text-sm text-muted-foreground">解析项目经历，生成追问题和 JD 匹配。</p>
                     </button>
-                    <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={() => setActiveTab("applications")}>
+                    <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={() => setActiveTab("prep")}>
                       <div className="flex items-center justify-between gap-3">
-                        <h4 className="text-sm font-semibold">推进求职机会</h4>
-                        <Pill variant="warn">{applications.length} 个机会</Pill>
+                        <h4 className="text-sm font-semibold">公司情报训练</h4>
+                        <Pill variant="warn">{experiences.length} 条面经</Pill>
                       </div>
-                      <p className="mt-2 text-sm text-muted-foreground">围绕一个公司岗位串起简历、JD、模拟和复盘。</p>
+                      <p className="mt-2 text-sm text-muted-foreground">围绕公司、岗位、面经和高频题做定向准备。</p>
                     </button>
                     <button className="rounded-xl border border-border p-4 text-left shadow-sm transition-colors hover:bg-slate-50" type="button" onClick={() => void handleExportData()} disabled={busy === "export"}>
                       <div className="flex items-center justify-between gap-3">
@@ -3424,7 +3145,7 @@ export default function Home() {
                         <button className={btnSecondary} type="button" onClick={() => { setSelectedSessionId(latestFinishedSession.id); setActiveTab("interview"); }}>
                           <Eye size={14} /> 查看详情
                         </button>
-                        <button className={btnGhost} type="button" onClick={() => setActiveTab("review")}>看复盘卡</button>
+                        <button className={btnGhost} type="button" onClick={() => setActiveTab("review")}>看报告</button>
                       </div>
                     </article>
                   )}
@@ -3438,45 +3159,21 @@ export default function Home() {
         {activeTab === "targets" && (
           <div className="grid gap-4">
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(340px,440px)_1fr]">
-              <Panel title="今日训练" icon={<ListChecks size={16} />}>
-                {!dailyData ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">暂无今日任务</div>
-                ) : (
-                  <div className="grid gap-3">
-                    <div className="grid grid-cols-3 gap-3">
-                      <ScoreCard label="今日任务" value={dailyData.summary.total} />
-                      <ScoreCard label="待复习题" value={dailyData.summary.dueKnowledge} />
-                      <ScoreCard label="复盘卡" value={dailyData.summary.todoReview} />
-                    </div>
-                    <div className="grid gap-2">
-                      {dailyData.dueCards.slice(0, 3).map((card) => (
-                        <div key={`daily-card-${card.id}`} className="grid grid-cols-[auto_1fr_auto] gap-3 items-center rounded-xl border border-border p-3">
-                          <Pill>八股</Pill>
-                          <div className="min-w-0">
-                            <strong className="text-sm">{card.question}</strong>
-                            <p className="mt-0.5 text-xs text-muted-foreground">{card.topic?.name ?? "通用"} / {masteryLabels[card.mastery] ?? "未学"}</p>
-                          </div>
-                          <button className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-slate-50" type="button"
-                            onClick={() => void updateKnowledgeProgress(card.id, Math.min(card.mastery + 1, 4), true)}>完成</button>
-                        </div>
-                      ))}
-                      {dailyData.reviewCards.slice(0, 2).map((card) => (
-                        <div key={`daily-review-${card.id}`} className="grid grid-cols-[auto_1fr_auto] gap-3 items-center rounded-xl border border-border p-3">
-                          <Pill variant="warn">复盘</Pill>
-                          <div className="min-w-0">
-                            <strong className="text-sm">{card.title}</strong>
-                            <p className="mt-0.5 text-xs text-muted-foreground">{card.weakness}</p>
-                          </div>
-                          <button className="rounded-lg px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-soft" type="button"
-                            onClick={() => setActiveTab("review")}>查看</button>
-                        </div>
-                      ))}
-                    </div>
+              <Panel title="核心准备" icon={<ListChecks size={16} />}>
+                <div className="grid gap-3">
+                  <div className="grid grid-cols-3 gap-3">
+                    <ScoreCard label="岗位目标" value={jobTargets.length} />
+                    <ScoreCard label="题库记录" value={cards.length} />
+                    <ScoreCard label="模拟轮次" value={sessions.length} />
                   </div>
-                )}
+                  <div className="rounded-xl border border-border bg-surface p-4">
+                    <h4 className="text-sm font-semibold">推荐顺序</h4>
+                    <TextList values={["先录入目标 JD 和简历", "再补公司面经与高频题", "最后启动一轮定向模拟并查看报告"]} />
+                  </div>
+                </div>
               </Panel>
 
-              <Panel title="岗位学习路径" icon={<GitBranch size={16} />}>
+              <Panel title="岗位准备路径" icon={<GitBranch size={16} />}>
                 {!learningPath ? (
                   <div className="py-8 text-center text-sm text-muted-foreground">暂无路径</div>
                 ) : (
@@ -3620,174 +3317,196 @@ export default function Home() {
         {/* ─── Prep / 公司 ─── */}
         {activeTab === "prep" && (
           <div className="grid gap-4">
-            <div className="flex items-end justify-between gap-4">
+            <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold">公司情报</h3>
-                <p className="mt-1 text-sm text-muted-foreground">录入真实面经，聚合高频题、轮次分布和公司定向训练。</p>
+                <p className="mt-1 text-sm text-muted-foreground">这里只做公司和 JD 浏览。先看大公司，再按岗位筛选本地已录入的 JD。</p>
               </div>
               <div className="flex gap-2">
-                <select className={compactSelectCls} value={prepCompanyId ?? ""} onChange={(e) => setPrepCompanyId(Number(e.target.value) || null)}>
-                  <option value="">选择公司</option>
-                  {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
-                <button className={btnPrimary} type="button" onClick={() => void loadCompanyPrep()} disabled={!prepCompanyId || busy === "company-prep"}>
-                  <Search size={15} /> 查看
+                <button className={btnSecondary} type="button" onClick={() => setActiveDialog("experience")}>
+                  <Building2 size={15} /> 录入面经
+                </button>
+                <button className={btnPrimary} type="button" onClick={() => setActiveDialog("jd")}>
+                  <Target size={15} /> 新增 JD
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <ScoreCard label="整体准备度" value={companyIntel?.readiness.overall ?? companyPrep?.readiness.overall ?? 0} />
-              <ScoreCard label="面经覆盖" value={companyIntel?.readiness.experience ?? 0} />
-              <ScoreCard label="八股覆盖" value={companyIntel?.readiness.coverage ?? companyPrep?.readiness.coverage ?? 0} />
-              <ScoreCard label="错题清理" value={companyIntel?.readiness.review ?? companyPrep?.readiness.review ?? 0} />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Panel title="录入面经" icon={<Sparkles size={16} />}>
-                <div className="grid gap-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="公司">
-                      <input className={inputCls} list="company-options" placeholder="如 Google" value={experienceCompanyName} onChange={(e) => setExperienceCompanyName(e.target.value)} />
-                    </Field>
-                    <Field label="岗位">
-                      <input className={inputCls} placeholder="如 SWE / 后端工程师" value={experienceRoleName} onChange={(e) => setExperienceRoleName(e.target.value)} />
-                    </Field>
-                  </div>
-                  <Field label="面经原文">
-                    <textarea className={textareaCls + " min-h-[300px]"} placeholder="粘贴整段面经..." value={experienceText} onChange={(e) => setExperienceText(e.target.value)} />
-                  </Field>
-                  <div className="flex gap-2">
-                    <button className={btnSecondary} type="button" onClick={() => void handleExperienceParse()} disabled={busy === "experience-parse"}>
-                      <Sparkles size={15} /> AI 结构化
+            <Panel title="筛选条件" icon={<Search size={16} />}>
+              <div className="grid gap-3 lg:grid-cols-[minmax(220px,300px)_1fr_auto]">
+                <input
+                  className={inputCls}
+                  placeholder="搜索公司"
+                  value={prepCompanySearch}
+                  onChange={(e) => setPrepCompanySearch(e.target.value)}
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    className={cn(
+                      "rounded-full border px-3 py-2 text-sm transition-colors",
+                      !prepRoleFilter ? "border-sky-300 bg-sky-600 text-white" : "border-border bg-surface text-muted-foreground hover:text-foreground",
+                    )}
+                    type="button"
+                    onClick={() => setPrepRoleFilter("")}
+                  >
+                    全部岗位
+                  </button>
+                  {prepRoleOptions.map((role) => (
+                    <button
+                      key={role}
+                      className={cn(
+                        "rounded-full border px-3 py-2 text-sm transition-colors",
+                        prepRoleFilter === role ? "border-sky-300 bg-sky-600 text-white" : "border-border bg-surface text-muted-foreground hover:text-foreground",
+                      )}
+                      type="button"
+                      onClick={() => setPrepRoleFilter(role)}
+                    >
+                      {role}
                     </button>
-                    <button className={btnPrimary} type="button" onClick={() => void handleExperienceSave()} disabled={!experienceDraft || busy === "experience-save"}>
-                      <Save size={15} /> 保存面经
-                    </button>
-                  </div>
+                  ))}
                 </div>
-              </Panel>
+                <button
+                  className={btnGhost}
+                  type="button"
+                  onClick={() => {
+                    setPrepCompanySearch("");
+                    setPrepRoleFilter("");
+                    setSelectedPrepCompanyName("");
+                  }}
+                >
+                  重置
+                </button>
+              </div>
+            </Panel>
 
-              <Panel title="结构化预览" icon={<ClipboardList size={16} />}>
-                {!experienceDraft ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">粘贴面经后生成结构化预览</div>
-                ) : (
-                  <div className="grid gap-3">
-                    <article className="rounded-xl border border-border p-4 shadow-sm">
+            <div className="grid gap-4 xl:grid-cols-[280px_minmax(360px,0.9fr)_minmax(420px,1.1fr)]">
+              <Panel title="公司列表" icon={<Building2 size={16} />}>
+                <div className="mb-3">
+                  <button
+                    className={cn(
+                      "w-full rounded-xl border px-3 py-3 text-left transition-colors",
+                      !selectedPrepCompanyName ? "border-sky-300 bg-sky-50 ring-2 ring-sky-100" : "border-border bg-surface hover:bg-sky-50",
+                    )}
+                    type="button"
+                    onClick={() => setSelectedPrepCompanyName("")}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <strong className="text-sm">全部公司</strong>
+                      <Pill variant="accent">{prepFilteredJobTargets.length} JD</Pill>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">查看当前筛选条件下的全部岗位。</p>
+                  </button>
+                </div>
+                <div className="grid max-h-[720px] gap-3 overflow-auto pr-1">
+                  {prepCompanyDirectory.map((company) => (
+                    <button
+                      key={company.name}
+                      className={cn(
+                        "rounded-xl border px-3 py-3 text-left transition-colors",
+                        selectedPrepCompanyName === company.name ? "border-sky-300 bg-sky-50 ring-2 ring-sky-100" : "border-border bg-surface hover:bg-sky-50",
+                      )}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPrepCompanyName(company.name);
+                        setPrepCompanyId(company.companyId);
+                      }}
+                    >
                       <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-sm font-semibold">{experienceDraft.companyName || "目标公司"} / {experienceDraft.roleName}</h4>
-                        <Pill variant="brand">{experienceDraft.confidence}</Pill>
+                        <strong className="text-sm text-slate-950">{company.name}</strong>
+                        <Pill variant={company.jdCount > 0 ? "brand" : "default"}>{company.jdCount} JD</Pill>
                       </div>
-                      <p className="mt-2 text-sm text-slate-500 leading-relaxed">{experienceDraft.summary}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">面经 {company.reportCount} 条</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {experienceDraft.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+                        {[...company.roles].slice(0, 3).map((role) => <Pill key={`${company.name}-${role}`}>{role}</Pill>)}
                       </div>
-                    </article>
-                    {experienceDraft.rounds.map((round) => (
-                      <article key={`${round.order}-${round.roundType}`} className="rounded-xl border border-border p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <h5 className="text-sm font-semibold">第 {round.order} 轮：{round.roundType}</h5>
-                          <Pill variant="accent">{round.questions.length} 题</Pill>
-                        </div>
-                        <TextList values={round.questions} />
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Panel title="公司高频题" icon={<BookOpen size={16} />}>
-                {!companyIntel || companyIntel.highFrequencyQuestions.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">选择公司或录入面经后查看高频题</div>
-                ) : (
-                  <div className="grid gap-3">
-                    {companyIntel.highFrequencyQuestions.map((item) => (
-                      <article key={item.question} className="rounded-xl border border-border p-4 shadow-sm">
-                        <div className="flex items-start justify-between gap-3">
-                          <h5 className="text-sm font-semibold">{item.question}</h5>
-                          <Pill variant="accent">{item.count} 次</Pill>
-                        </div>
-                        <Pill>{item.roundType}</Pill>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <Panel title="轮次情报" icon={<BarChart3 size={16} />}>
-                {!companyIntel || companyIntel.roundDistribution.length === 0 ? (
-                  <div className="py-8 text-center text-sm text-muted-foreground">暂无轮次统计</div>
-                ) : (
-                  <div className="grid gap-3">
-                    {companyIntel.roundDistribution.map((row) => (
-                      <div key={row.roundType} className="rounded-xl border border-border p-4 shadow-sm">
-                        <div className="flex items-center justify-between gap-3">
-                          <h5 className="text-sm font-semibold">{row.roundType}</h5>
-                          <Pill variant="brand">{row.count}</Pill>
-                        </div>
-                        <div className="mt-3 h-2 rounded-full bg-border overflow-hidden">
-                          <div className={cn("h-full rounded-full transition-all", progressGradientCls)}
-                            style={{ width: `${Math.min(row.count * 20, 100)}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                    <DataGroup title="下一步"><TextList values={companyIntel.nextActions} /></DataGroup>
-                  </div>
-                )}
-              </Panel>
-            </div>
-
-            <Panel title="最近面经" icon={<MessageSquareText size={16} />}>
-              <div className="mb-4 grid gap-3 rounded-xl border border-border bg-slate-50 p-4">
-                <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_1fr_160px]">
-                  <input className={inputCls} placeholder="关键词" value={experienceFilters.q}
-                    onChange={(e) => setExperienceFilters({ ...experienceFilters, q: e.target.value })} />
-                  <input className={inputCls} placeholder="公司" value={experienceFilters.company}
-                    onChange={(e) => setExperienceFilters({ ...experienceFilters, company: e.target.value })} />
-                  <input className={inputCls} placeholder="岗位" value={experienceFilters.role}
-                    onChange={(e) => setExperienceFilters({ ...experienceFilters, role: e.target.value })} />
-                  <input className={inputCls} placeholder="轮次" value={experienceFilters.roundType}
-                    onChange={(e) => setExperienceFilters({ ...experienceFilters, roundType: e.target.value })} />
-                  <select className={inputCls} value={experienceFilters.confidence}
-                    onChange={(e) => setExperienceFilters({ ...experienceFilters, confidence: e.target.value })}>
-                    <option value="">全部可信度</option>
-                    <option value="high">高</option>
-                    <option value="medium">中</option>
-                    <option value="low">低</option>
-                  </select>
+                    </button>
+                  ))}
                 </div>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap gap-1.5">
-                    {(companyIntel?.roleNames ?? []).map((role) => (
-                      <button key={role} className="rounded-full border border-border bg-surface px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground" type="button"
-                        onClick={() => {
-                          const next = { ...experienceFilters, role };
-                          setExperienceFilters(next);
-                          void loadExperiences(next);
-                        }}>
-                        {role}
+              </Panel>
+
+              <Panel title="JD 列表" icon={<FileText size={16} />}>
+                {prepFilteredJobTargets.length === 0 ? (
+                  <EmptyBeauty
+                    title="还没有匹配到 JD"
+                    description="当前公司或岗位筛选下还没有本地 JD。可以先切换公司，或者新增一条目标岗位 JD。"
+                    action={{ title: "新增 JD", description: "", icon: <Target size={15} />, action: () => setActiveDialog("jd") }}
+                  />
+                ) : (
+                  <div className="grid max-h-[720px] gap-3 overflow-auto pr-1">
+                    {prepFilteredJobTargets.map((target) => (
+                      <button
+                        key={target.id}
+                        className={cn(
+                          "rounded-xl border px-4 py-4 text-left transition-colors",
+                          selectedPrepJobTarget?.id === target.id ? "border-sky-300 bg-sky-50 ring-2 ring-sky-100" : "border-border bg-surface hover:bg-sky-50",
+                        )}
+                        type="button"
+                        onClick={() => setSelectedPrepJobTargetId(target.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-medium text-muted-foreground">{target.company?.name ?? "未命名公司"}</p>
+                            <h4 className="mt-1 text-sm font-semibold text-slate-950">{target.roleName}</h4>
+                          </div>
+                          <Pill variant="accent">{target.match.matchScore || 0}</Pill>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{target.rawJd}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {target.parsed.requiredSkills.slice(0, 3).map((skill) => <Pill key={`${target.id}-${skill}`}>{skill}</Pill>)}
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">{formatDate(target.updatedAt)}</p>
                       </button>
                     ))}
                   </div>
-                  <div className="flex gap-2">
-                    <button className={btnPrimary} type="button" onClick={() => void loadExperiences(experienceFilters)}>
-                      <Search size={15} /> 筛选面经
-                    </button>
-                    <button className={btnGhost} type="button" onClick={() => {
-                      const next = { q: "", company: "", role: "", roundType: "", confidence: "" };
-                      setExperienceFilters(next);
-                      void loadExperiences(next);
-                    }}>重置</button>
+                )}
+              </Panel>
+
+              <Panel title="JD 详情" icon={<ClipboardList size={16} />}>
+                {!selectedPrepJobTarget ? (
+                  <EmptyBeauty
+                    title="选择一条 JD"
+                    description="从中间列表选择岗位后，这里会显示职责、要求、风险点和简历匹配情况。"
+                  />
+                ) : (
+                  <div className="grid gap-4">
+                    <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium text-muted-foreground">{selectedPrepJobTarget.company?.name ?? "未命名公司"}</p>
+                          <h4 className="mt-1 text-base font-semibold text-slate-950">{selectedPrepJobTarget.roleName}</h4>
+                        </div>
+                        <Pill variant="brand">匹配 {selectedPrepJobTarget.match.matchScore || 0}</Pill>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button className={btnPrimary} type="button" onClick={() => { setSelectedJobTargetId(selectedPrepJobTarget.id); setActiveTab("interview"); }}>
+                          <Play size={15} /> 用这条 JD 模拟
+                        </button>
+                        <button className={btnSecondary} type="button" onClick={() => { setSelectedJobTargetId(selectedPrepJobTarget.id); setActiveTab("targets"); }}>
+                          <Gauge size={15} /> 查看匹配报告
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <DataGroup title="岗位职责"><TextList values={selectedPrepJobTarget.parsed.responsibilities} /></DataGroup>
+                      <DataGroup title="必备技能"><TextList values={selectedPrepJobTarget.parsed.requiredSkills} /></DataGroup>
+                      <DataGroup title="加分项"><TextList values={selectedPrepJobTarget.parsed.bonusSkills} /></DataGroup>
+                      <DataGroup title="风险点"><TextList values={selectedPrepJobTarget.parsed.riskPoints} /></DataGroup>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <DataGroup title="简历优势"><TextList values={selectedPrepJobTarget.match.strengths} /></DataGroup>
+                      <DataGroup title="简历缺口"><TextList values={selectedPrepJobTarget.match.gaps} /></DataGroup>
+                    </div>
+
+                    <article className="rounded-xl border border-border bg-slate-50 p-4 shadow-sm">
+                      <h4 className="text-sm font-semibold">原始 JD</h4>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-600">{selectedPrepJobTarget.rawJd}</p>
+                    </article>
                   </div>
-                </div>
-              </div>
-              <ExperienceList experiences={experiences}
-                onGenerateCards={handleExperienceGenerateCards}
-                onStartInterview={handleExperienceStartInterview}
-                onCreateTasks={handleExperienceCreateTasks} />
-            </Panel>
+                )}
+              </Panel>
+            </div>
           </div>
         )}
 
@@ -3836,7 +3555,7 @@ export default function Home() {
               </div>
             </Panel>
 
-            <Panel title="学习卡" icon={<BookOpen size={16} />}>
+            <Panel title="题库记录" icon={<BookOpen size={16} />}>
               <div className="flex flex-wrap items-center gap-2">
                 <input className={inputCls + " flex-1 min-w-[180px]"} placeholder="搜索八股" value={filters.q}
                   onChange={(e) => setFilters({ ...filters, q: e.target.value })} />
@@ -3851,14 +3570,11 @@ export default function Home() {
                 <button className={btnSecondary} type="button" onClick={() => void handleSeedQuestionBank()} disabled={busy === "seed-bank"}>
                   <Sparkles size={15} /> 导入题库
                 </button>
-                <button className={btnSecondary} type="button" onClick={handleStartReview}>
-                  <Play size={15} /> 复习模式
-                </button>
               </div>
               <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(280px,1fr)_minmax(340px,440px)]">
                 <div className="grid max-h-[760px] gap-3 overflow-auto pr-1">
                   {cards.length === 0 ? (
-                    <div className="py-8 text-center text-sm text-muted-foreground">暂无学习卡</div>
+                    <div className="py-8 text-center text-sm text-muted-foreground">暂无题库记录</div>
                   ) : (
                     cards.map((card) => (
                       <article
@@ -3869,21 +3585,32 @@ export default function Home() {
                         )}
                       >
                         <button className="block w-full text-left" type="button" onClick={() => { setSelectedKnowledgeId(card.id); setReviewMode(false); }}>
-                          <div className="flex items-start justify-between gap-3">
-                            <h5 className="text-sm font-semibold leading-snug">{card.question}</h5>
-                            <Pill variant={card.mastery >= 3 ? "brand" : "warn"}>{masteryLabels[card.mastery] ?? card.mastery}</Pill>
-                          </div>
-                          <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500">{card.answer}</p>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {card.company && <Pill>{card.company.name}</Pill>}
-                            {card.topic && <Pill>{card.topic.name}</Pill>}
-                            <Pill variant="accent">{difficultyLabels[card.difficulty] ?? card.difficulty}</Pill>
-                          </div>
+                          {(() => {
+                            const guide = buildKnowledgeStudyGuide({
+                              question: card.question,
+                              answer: card.answer,
+                              note: card.note,
+                              topicName: card.topic?.name,
+                              tags: card.tags,
+                            });
+                            return (
+                              <>
+                                <div className="flex items-start justify-between gap-3">
+                                  <h5 className="text-sm font-semibold leading-snug">{card.question}</h5>
+                                  <Pill variant="accent">{card.questionType || "八股"}</Pill>
+                                </div>
+                                <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-slate-500">{guide.coreAnswer}</p>
+                                <div className="mt-2 flex flex-wrap gap-1.5">
+                                  {card.company && <Pill>{card.company.name}</Pill>}
+                                  {card.topic && <Pill>{card.topic.name}</Pill>}
+                                  <Pill variant="accent">{difficultyLabels[card.difficulty] ?? card.difficulty}</Pill>
+                                  <Pill>{guide.followUps.length} 追问</Pill>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </button>
                         <div className="mt-3 flex flex-wrap gap-2">
-                          <button className={btnSecondary} type="button" onClick={() => void updateKnowledgeProgress(card.id, Math.min(card.mastery + 1, 4), true)}>
-                            <BookOpen size={14} /> 复习
-                          </button>
                           <button className={btnGhost} type="button" onClick={() => startKnowledgeEdit(card)}>
                             <Pencil size={14} /> 编辑
                           </button>
@@ -3895,11 +3622,11 @@ export default function Home() {
 
                 <div className="rounded-xl border border-border bg-slate-50 p-4">
                   {!selectedKnowledgeCard ? (
-                    <div className="py-8 text-center text-sm text-muted-foreground">选择一张学习卡查看详情</div>
+                    <div className="py-8 text-center text-sm text-muted-foreground">选择一条题库记录查看详情</div>
                   ) : editingKnowledgeId === selectedKnowledgeCard.id ? (
                     <div className="grid gap-3">
                       <div className="flex items-start justify-between gap-3">
-                        <h4 className="text-sm font-semibold">编辑学习卡</h4>
+                        <h4 className="text-sm font-semibold">编辑题库记录</h4>
                         <button className={btnGhost} type="button" onClick={() => setEditingKnowledgeId(null)}>取消</button>
                       </div>
                       <Field label="题目">
@@ -3914,14 +3641,6 @@ export default function Home() {
                         </Field>
                         <Field label="主题">
                           <input className={inputCls} value={knowledgeEditForm.topicName} onChange={(e) => setKnowledgeEditForm({ ...knowledgeEditForm, topicName: e.target.value })} />
-                        </Field>
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <Field label="掌握度">
-                          <input className={inputCls} type="number" min={0} max={4} value={knowledgeEditForm.mastery} onChange={(e) => setKnowledgeEditForm({ ...knowledgeEditForm, mastery: Number(e.target.value) })} />
-                        </Field>
-                        <Field label="优先级">
-                          <input className={inputCls} type="number" min={0} max={100} value={knowledgeEditForm.priorityScore} onChange={(e) => setKnowledgeEditForm({ ...knowledgeEditForm, priorityScore: Number(e.target.value) })} />
                         </Field>
                       </div>
                       <Field label="标签">
@@ -3940,47 +3659,18 @@ export default function Home() {
                     <div className="grid gap-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <Pill variant={reviewMode ? "accent" : "brand"}>{reviewMode ? "复习模式" : "题卡详情"}</Pill>
+                          <Pill variant="brand">题目详情</Pill>
                           <h4 className="mt-3 text-base font-semibold leading-snug">{selectedKnowledgeCard.question}</h4>
                         </div>
                         <button className={btnGhost} type="button" onClick={() => startKnowledgeEdit(selectedKnowledgeCard)}>
                           <Pencil size={14} /> 编辑
                         </button>
                       </div>
-                      <div className="rounded-xl border border-border bg-surface p-4">
-                        <h5 className="text-sm font-semibold">参考答案</h5>
-                        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{selectedKnowledgeCard.answer}</p>
-                      </div>
-                      {selectedKnowledgeCard.note && (
-                        <div className="rounded-xl border border-border bg-surface p-4">
-                          <h5 className="text-sm font-semibold">面试提示</h5>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-600">{selectedKnowledgeCard.note}</p>
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-3">
-                        <ScoreCard label="掌握度" value={selectedKnowledgeCard.mastery} />
-                        <ScoreCard label="优先级" value={selectedKnowledgeCard.priorityScore} />
-                      </div>
+                      <KnowledgeStudyGuideView card={selectedKnowledgeCard} />
                       <div className="flex flex-wrap gap-1.5">
                         {selectedKnowledgeCard.company && <Pill>{selectedKnowledgeCard.company.name}</Pill>}
                         {selectedKnowledgeCard.topic && <Pill>{selectedKnowledgeCard.topic.name}</Pill>}
                         {selectedKnowledgeCard.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button className={btnPrimary} type="button" onClick={() => void updateKnowledgeProgress(selectedKnowledgeCard.id, Math.min(selectedKnowledgeCard.mastery + 1, 4), true)}>
-                          <CheckCircle2 size={15} /> 已掌握
-                        </button>
-                        <button className={btnSecondary} type="button" onClick={() => void updateKnowledgeProgress(selectedKnowledgeCard.id, Math.max(selectedKnowledgeCard.mastery - 1, 0), true)}>
-                          还不熟
-                        </button>
-                        {reviewMode && (
-                          <button className={btnGhost} type="button" onClick={() => {
-                            const currentIndex = reviewQueue.findIndex((card) => card.id === selectedKnowledgeCard.id);
-                            setSelectedKnowledgeId(reviewQueue[currentIndex + 1]?.id ?? reviewQueue[0]?.id ?? selectedKnowledgeCard.id);
-                          }}>
-                            下一题
-                          </button>
-                        )}
                       </div>
                     </div>
                   )}
@@ -4174,36 +3864,64 @@ export default function Home() {
                               const followUps = interviewerSession.turns.filter((item) => item.parentTurnId === turn.id && item.turnType === "followup");
                               const covered = Boolean(turn.answer?.trim());
                               return (
-                                <button
-                                  key={turn.id}
-                                  type="button"
-                                  onClick={() => {
-                                    setFocusedInterviewerTurnId(turn.id);
-                                    setInterviewerAnswerText(turn.answer ?? "");
-                                  }}
-                                  className={cn(
-                                    "rounded-2xl border p-4 text-left shadow-sm transition-colors",
-                                    interviewerFocusedTurn?.id === turn.id ? "border-primary bg-primary-soft/40" : "border-border bg-surface hover:bg-slate-50",
-                                  )}
-                                >
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                      <div className="flex flex-wrap gap-2">
-                                        <Pill variant="brand">主问题 {turn.order}</Pill>
-                                        {turn.questionSource && <Pill>{turn.questionSource}</Pill>}
+                                <div key={turn.id} className="grid gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      focusInterviewerTurn(turn.id, turn.answer);
+                                    }}
+                                    className={cn(
+                                      "rounded-2xl border p-4 text-left shadow-sm transition-colors",
+                                      interviewerFocusedTurn?.id === turn.id ? "border-primary bg-primary-soft/40" : "border-border bg-surface hover:bg-slate-50",
+                                    )}
+                                  >
+                                    <div className="flex flex-wrap items-start justify-between gap-3">
+                                      <div>
+                                        <div className="flex flex-wrap gap-2">
+                                          <Pill variant="brand">主问题 {turn.order}</Pill>
+                                          {turn.questionSource && <Pill>{turn.questionSource}</Pill>}
+                                        </div>
+                                        {turn.intent && <p className="mt-2 text-xs text-muted-foreground">考察点：{turn.intent}</p>}
                                       </div>
-                                      {turn.intent && <p className="mt-2 text-xs text-muted-foreground">考察点：{turn.intent}</p>}
+                                      <Pill variant={covered ? "brand" : "accent"}>{covered ? "已覆盖" : "待覆盖"}</Pill>
                                     </div>
-                                    <Pill variant={covered ? "brand" : "accent"}>{covered ? "已覆盖" : "待覆盖"}</Pill>
-                                  </div>
-                                  <p className="mt-3 text-sm font-medium leading-relaxed">{turn.question}</p>
-                                  <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                                    {turn.answer?.trim() || "还没有纪要。"}
-                                  </p>
+                                    <p className="mt-3 text-sm font-medium leading-relaxed">{turn.question}</p>
+                                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                                      {turn.answer?.trim() || "还没有纪要。"}
+                                    </p>
+                                    {followUps.length > 0 && (
+                                      <p className="mt-2 text-xs text-muted-foreground">追问 {followUps.length} 条</p>
+                                    )}
+                                  </button>
+
                                   {followUps.length > 0 && (
-                                    <p className="mt-2 text-xs text-muted-foreground">追问 {followUps.length} 条</p>
+                                    <div className="ml-4 grid gap-2 border-l border-border pl-3">
+                                      {followUps.map((followUp, index) => (
+                                        <button
+                                          key={followUp.id}
+                                          type="button"
+                                          onClick={() => {
+                                            focusInterviewerTurn(followUp.id, followUp.answer);
+                                          }}
+                                          className={cn(
+                                            "rounded-xl border p-3 text-left transition-colors",
+                                            interviewerFocusedTurn?.id === followUp.id ? "border-primary bg-primary-soft/30" : "border-border bg-surface hover:bg-slate-50",
+                                          )}
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="flex flex-wrap gap-2">
+                                              <Pill variant="accent">追问 {index + 1}</Pill>
+                                              {followUp.questionSource && <Pill>{followUp.questionSource}</Pill>}
+                                            </div>
+                                            <Pill variant={followUp.answer?.trim() ? "brand" : "accent"}>{followUp.answer?.trim() ? "已记录" : "待记录"}</Pill>
+                                          </div>
+                                          <p className="mt-2 text-sm font-medium leading-relaxed">{followUp.question}</p>
+                                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{followUp.answer?.trim() || "还没有纪要。"}</p>
+                                        </button>
+                                      ))}
+                                    </div>
                                   )}
-                                </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -4224,8 +3942,7 @@ export default function Home() {
                                     key={turn.id}
                                     type="button"
                                     onClick={() => {
-                                      setFocusedInterviewerTurnId(turn.id);
-                                      setInterviewerAnswerText(turn.answer ?? "");
+                                      focusInterviewerTurn(turn.id, turn.answer);
                                     }}
                                     className={cn(
                                       "rounded-xl border p-3 text-left transition-colors",
@@ -4267,10 +3984,15 @@ export default function Home() {
                                   <strong className="text-foreground">参考好答案：</strong>{interviewerFocusedTurn.idealAnswer}
                                 </div>
                               )}
-                              {interviewerSession.turns.filter((turn) => turn.parentTurnId === interviewerFocusedTurn?.id && turn.turnType === "followup").length > 0 && (
+                              {interviewerFocusedTurn?.turnType === "primary" && interviewerSession.turns.filter((turn) => turn.parentTurnId === interviewerFocusedTurn?.id && turn.turnType === "followup").length > 0 && (
                                 <DataGroup title="已挂载追问">
                                   <TextList values={interviewerSession.turns.filter((turn) => turn.parentTurnId === interviewerFocusedTurn?.id && turn.turnType === "followup").map((turn) => turn.question)} />
                                 </DataGroup>
+                              )}
+                              {interviewerFocusedTurn?.turnType === "followup" && interviewerFocusedTurn.parentTurnId && (
+                                <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
+                                  这是一条追问卡，已挂到主问题 #{interviewerSession.turns.find((turn) => turn.id === interviewerFocusedTurn.parentTurnId)?.order ?? "-"}。
+                                </p>
                               )}
                             </article>
                           )}
@@ -4293,6 +4015,23 @@ export default function Home() {
                             />
                           </Field>
 
+                          {interviewerFocusedTurn?.turnType === "discussion" && (
+                            <Field label="归属到主问题">
+                              <select
+                                className={inputCls}
+                                value={interviewerDiscussionParentId ?? ""}
+                                onChange={(e) => setInterviewerDiscussionParentId(e.target.value ? Number(e.target.value) : null)}
+                              >
+                                <option value="">先选择一个主问题</option>
+                                {interviewerPrimaryTurns.map((turn) => (
+                                  <option key={turn.id} value={turn.id}>
+                                    主问题 {turn.order} · {turn.question}
+                                  </option>
+                                ))}
+                              </select>
+                            </Field>
+                          )}
+
                           <div className="flex flex-wrap gap-2">
                             <button className={btnPrimary} type="button" onClick={() => void handleSubmitInterviewerAnswer()} disabled={!interviewerFocusedTurn || busy === "interviewer-answer"}>
                               <Send size={15} /> 保存到当前题卡
@@ -4300,6 +4039,11 @@ export default function Home() {
                             <button className={btnSecondary} type="button" onClick={() => void handleCreateInterviewerDiscussion()} disabled={busy === "interviewer-answer"}>
                               <ClipboardList size={15} /> 新建自由讨论卡
                             </button>
+                            {interviewerFocusedTurn?.turnType === "discussion" && (
+                              <button className={btnSecondary} type="button" onClick={() => void handleRelinkInterviewerDiscussion()} disabled={busy === "interviewer-answer"}>
+                                <GitBranch size={15} /> 归属到主问题
+                              </button>
+                            )}
                             <button className={btnGhost} type="button" onClick={() => void handleFinishInterviewerSession()} disabled={!interviewerSession || interviewerPrimaryCoveredCount === 0 || busy === "interviewer-finish"}>
                               <CheckCircle2 size={15} /> 生成评分复盘
                             </button>
@@ -4385,6 +4129,56 @@ export default function Home() {
         {/* ─── Interview ─── */}
         {activeTab === "interview" && (
           <div className="grid gap-4">
+            <Panel title="市场标杆补齐雷达" icon={<BarChart3 size={16} />}>
+              <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_1fr]">
+                <article className={cn("rounded-2xl border border-border p-4", softGradientCls)}>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Market Coverage</p>
+                  <div className="mt-2 flex items-end gap-3">
+                    <span className="text-4xl font-bold">{interviewBenchmarkCoverage.score}</span>
+                    <span className="pb-1 text-sm text-muted-foreground">/ 100</span>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-slate-600">
+                    对照 LeetCode、HackerRank、CodeSignal、CoderPad、interviewing.io、Big Interview、Pramp 等平台的公开能力，持续检查我们还差什么。
+                  </p>
+                  <div className="mt-4 grid grid-cols-3 gap-2">
+                    <ScoreCard label="已具备" value={interviewBenchmarkCoverage.strong} />
+                    <ScoreCard label="可加强" value={interviewBenchmarkCoverage.partial} />
+                    <ScoreCard label="待补齐" value={interviewBenchmarkCoverage.missing} />
+                  </div>
+                  {interviewBenchmarkCoverage.next && (
+                    <button
+                      className={btnPrimary + " mt-4 w-full"}
+                      type="button"
+                      onClick={() => jumpToBenchmarkTarget(interviewBenchmarkCoverage.next!.target)}
+                    >
+                      <Target size={15} /> 下一步：{interviewBenchmarkCoverage.next.ctaLabel}
+                    </button>
+                  )}
+                </article>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {interviewPlatformBenchmarks.map((item) => {
+                    const status = benchmarkStatusCopy[item.ourStatus];
+                    return (
+                      <article key={item.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                        <div className="flex items-start justify-between gap-3">
+                          <h4 className="text-sm font-semibold leading-snug">{item.title}</h4>
+                          <Pill variant={status.pill}>{status.label}</Pill>
+                        </div>
+                        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{item.platforms.join(" / ")}</p>
+                        <p className="mt-3 text-sm leading-relaxed text-slate-600">{item.marketPattern}</p>
+                        <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">{item.evidence}</p>
+                        <p className="mt-3 text-xs leading-relaxed text-muted-foreground">{item.recommendedAction}</p>
+                        <button className={btnGhost + " mt-3"} type="button" onClick={() => jumpToBenchmarkTarget(item.target)}>
+                          {item.ctaLabel}
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            </Panel>
+
             <Panel title="面试工作台" icon={<MessageSquareText size={16} />}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex gap-1 rounded-lg border border-border bg-slate-50 p-1">
@@ -4948,17 +4742,28 @@ export default function Home() {
                     <button key={session.id} type="button" className="rounded-xl border border-border p-4 text-left shadow-sm hover:bg-slate-50"
                       onClick={() => {
                         setSelectedSessionId(session.id);
-                        setActiveSession(session.status === "active" ? session : activeSession);
-                        setInterviewWorkspace("candidate");
+                        setActiveSession(session.config?.sessionKind === "mock_interviewer" ? activeSession : (session.status === "active" ? session : activeSession));
+                        setInterviewWorkspace(session.config?.sessionKind === "mock_interviewer" ? "interviewer" : "candidate");
                       }}>
                       <div className="flex items-start justify-between gap-3">
-                        <h5 className="text-sm font-semibold">{interviewModeLabels[session.mode]} / {roundTypeLabels[session.roundType]}</h5>
+                        <h5 className="text-sm font-semibold">
+                          {session.config?.sessionKind === "mock_interviewer"
+                            ? "面试官 Agent"
+                            : `${interviewModeLabels[session.mode]} / ${roundTypeLabels[session.roundType]}`}
+                        </h5>
                         <Pill variant={session.status === "finished" ? "brand" : "accent"}>{session.status === "finished" ? "已完成" : session.status}</Pill>
                       </div>
                       <p className="mt-1 text-sm text-muted-foreground">{session.company?.name ?? "未命名公司"}{session.targetRole ? ` / ${session.targetRole}` : ""}</p>
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         <Pill>总分 {scoreOrDash(session.score.overall)}</Pill>
-                        <Pill>回答 {session.turns.filter((turn) => turn.answer).length}/{session.turns.length}</Pill>
+                        {session.config?.sessionKind === "mock_interviewer" ? (
+                          <>
+                            <Pill>主问题 {session.turns.filter((turn) => turn.turnType === "primary" && turn.answer?.trim()).length}/{session.plan?.primaryQuestionBudget ?? session.turns.filter((turn) => turn.turnType === "primary").length}</Pill>
+                            <Pill>讨论 {session.turns.filter((turn) => turn.turnType === "discussion").length}</Pill>
+                          </>
+                        ) : (
+                          <Pill>回答 {session.turns.filter((turn) => turn.answer).length}/{session.turns.length}</Pill>
+                        )}
                         <Pill>{formatDate(session.updatedAt)}</Pill>
                       </div>
                     </button>
@@ -5148,13 +4953,13 @@ export default function Home() {
                           <div>
                             <h4 className="text-sm font-semibold">LangGraph Agent 输入</h4>
                             <p className="mt-1 text-xs text-slate-600">
-                              输入一句想法，Agent 会调用 GLM-5.1 按我们的模板生成创业想法详情。
+                              输入一句想法，Agent 会调用当前配置模型按我们的模板生成创业想法详情。
                             </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <Pill variant="accent">LangGraph</Pill>
                             <Pill variant={startupIdeaAgentExecution?.usedFallback ? "warn" : "brand"}>
-                              {startupIdeaAgentExecution?.usedFallback ? "Fallback" : "GLM-5.1"}
+                              {startupIdeaAgentExecution?.usedFallback ? "Fallback" : startupIdeaAgentExecution?.model || "deepseek-v4-pro"}
                             </Pill>
                           </div>
                         </div>
@@ -5267,527 +5072,66 @@ export default function Home() {
 
         {/* ─── GitHub Trends ─── */}
         {activeTab === "github" && (
-          <div className="grid gap-4">
-            <Panel title="开源趋势雷达" icon={<GitBranch size={16} />}>
-              <div className="grid gap-3 xl:grid-cols-[minmax(240px,1.2fr)_170px_150px_140px_150px_auto] xl:items-center">
-                <input
-                  className={cn(inputCls, "xl:min-w-0")}
-                  placeholder="搜索 agent、mcp、hermes agent、coding agent"
-                  value={githubFilters.q}
-                  onChange={(e) => setGithubFilters({ ...githubFilters, q: e.target.value })}
-                />
-                <select
-                  className={compactSelectCls}
-                  value={githubFilters.topic}
-                  onChange={(e) => void updateGithubFilters({ ...githubFilters, topic: e.target.value })}
-                >
-                  <option value="">全部方向</option>
-                  <option value="AI Agent">AI Agent</option>
-                  <option value="MCP">MCP</option>
-                  <option value="LLM">LLM</option>
-                  <option value="DevTools">DevTools</option>
-                </select>
-                <select
-                  className={compactSelectCls}
-                  value={githubFilters.language}
-                  onChange={(e) => void updateGithubFilters({ ...githubFilters, language: e.target.value })}
-                >
-                  <option value="">全部语言</option>
-                  {githubLanguages.map((language) => <option key={language} value={language}>{language}</option>)}
-                </select>
-                <select
-                  className={compactSelectCls}
-                  value={githubFilters.window}
-                  onChange={(e) => void updateGithubFilters({ ...githubFilters, window: e.target.value })}
-                >
-                  <option value="daily">日榜</option>
-                  <option value="weekly">周榜</option>
-                </select>
-                <select
-                  className={compactSelectCls}
-                  value={githubFilters.sort}
-                  onChange={(e) => void updateGithubFilters({ ...githubFilters, sort: e.target.value })}
-                >
-                  <option value="score">潜力分</option>
-                  <option value="delta">Star 增速</option>
-                  <option value="stars">Star 总数</option>
-                  <option value="updated">最近活跃</option>
-                </select>
-                <div className="flex flex-wrap gap-2 xl:justify-end">
-                  <button className={btnSecondary} type="button" onClick={() => void loadGithubTrends(githubFilters)}>
-                    <Search size={15} /> 搜索
-                  </button>
-                  <button className={btnPrimary} type="button" onClick={() => void refreshGithubTrends()} disabled={busy === "github-refresh"}>
-                    <RefreshCcw size={15} /> {busy === "github-refresh" ? "刷新中" : "刷新日榜"}
-                  </button>
-                </div>
-              </div>
-              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <Pill variant="brand">{githubMeta?.total ?? githubRepos.length} 个仓库</Pill>
-                <Pill>{githubMeta?.snapshotDate ?? "未刷新"}</Pill>
-                <button
-                  className={cn(
-                    "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
-                    githubFilters.favorite === "true" ? "bg-zinc-900 text-white" : "bg-slate-100 text-slate-700 hover:bg-slate-200",
-                  )}
-                  type="button"
-                  onClick={() => void updateGithubFilters({ ...githubFilters, favorite: githubFilters.favorite === "true" ? "" : "true" })}
-                >
-                  只看收藏
-                </button>
-                {githubTopics.slice(0, 10).map((topic) => (
-                  <button
-                    key={topic}
-                    className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
-                    type="button"
-                    onClick={() => setGithubFilters({ ...githubFilters, q: topic })}
-                  >
-                    {topic}
-                  </button>
-                ))}
-              </div>
-            </Panel>
-
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-              <Panel title="今日雷达简报" icon={<Sparkles size={16} />}>
-                <div className="grid gap-3">
-                  <article className={cn("rounded-2xl border border-border p-4", softGradientCls)}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Radar Brief</p>
-                        <h3 className="mt-2 text-lg font-semibold text-slate-950">{githubRadar.headline}</h3>
-                        <p className="mt-2 text-sm leading-7 text-slate-600">{githubRadar.summary}</p>
-                      </div>
-                      <div className="grid min-w-[220px] grid-cols-3 gap-2 text-xs">
-                        <RepoMiniStat label="候选" value={githubMeta?.total ?? githubRepos.length} />
-                        <RepoMiniStat label="去重后" value={githubRadar.selectedRepoCount} />
-                        <RepoMiniStat label="主题数" value={githubRadar.uniqueThemeCount} />
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <button className={btnPrimary} type="button" onClick={() => void analyzeGithubRadarDigest()} disabled={busy === "github-radar-analyze"}>
-                        <Sparkles size={15} /> {busy === "github-radar-analyze" ? "生成中" : "生成 AI 简报"}
-                      </button>
-                      <button className={btnSecondary} type="button" onClick={() => void saveGithubRadarAsSource()} disabled={busy === "github-radar-source"}>
-                        <Save size={15} /> {busy === "github-radar-source" ? "保存中" : "保存到来源"}
-                      </button>
-                    </div>
-                  </article>
-
-                  <div className="grid gap-3 xl:grid-cols-2">
-                    <CompactIdeaCard title="关键信号">
-                      <TextListOrEmpty values={githubRadar.keySignals} emptyText="刷新榜单后会生成趋势信号摘要。" />
-                    </CompactIdeaCard>
-                    <CompactIdeaCard title="这轮先看什么">
-                      <TextListOrEmpty values={githubRadar.watchlist} emptyText="还没有优先级建议。" />
-                    </CompactIdeaCard>
-                  </div>
-
-                  {(githubRadarDigest.summary || githubRadarExecution) && (
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      <CompactIdeaCard title={githubRadarDigest.title || "AI 雷达简报"} value={githubRadarDigest.summary || "点击生成 AI 简报后，系统会给出一版更适合行动的中文总结。"} />
-                      <CompactIdeaCard title="建议动作">
-                        <TextListOrEmpty values={githubRadarDigest.recommendedActions ?? []} emptyText="还没有建议动作。" />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="主题判断">
-                        <TextListOrEmpty values={githubRadarDigest.themeTakeaways ?? []} emptyText="还没有主题判断。" />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="机会与风险">
-                        <TextListOrEmpty values={[...(githubRadarDigest.opportunities ?? []), ...(githubRadarDigest.risks ?? []).map((item) => `风险：${item}`)]} emptyText="还没有机会与风险判断。" />
-                      </CompactIdeaCard>
-                    </div>
-                  )}
-
-                  {githubRadarExecution && (
-                    <div className="rounded-xl border border-border bg-surface p-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>模型：{githubRadarExecution.model}</span>
-                        <span>·</span>
-                        <span>{githubRadarExecution.usedFallback ? "当前是 fallback 简报" : "已使用真实模型简报"}</span>
-                      </div>
-                      <TextList values={githubRadarExecution.steps} />
-                    </div>
-                  )}
-
-                  <div className="grid gap-2.5">
-                    {githubRadar.topRepositories.map((repo) => (
-                      <article
-                        key={repo.id}
-                        className="rounded-xl border border-border bg-surface p-3 shadow-sm"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="rounded-full bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-white">#{repo.rank}</span>
-                              <button
-                                className="truncate text-left text-sm font-semibold text-slate-900 hover:text-primary"
-                                type="button"
-                                onClick={() => setSelectedGithubRepoId(repo.id)}
-                              >
-                                {repo.fullName}
-                              </button>
-                              <Pill variant="accent">{repo.theme}</Pill>
-                              {repo.dedupedCount > 1 && <Pill>{repo.dedupedCount} 个同类</Pill>}
-                            </div>
-                            <p className="mt-2 text-sm leading-6 text-slate-600">{repo.reason}</p>
-                          </div>
-                          <div className="grid grid-cols-3 gap-2 text-xs">
-                            <RepoMiniStat label="Score" value={repo.score} />
-                            <RepoMiniStat label="24h" value={repo.starDelta24h} />
-                            <RepoMiniStat label="7d" value={repo.starDelta7d} />
-                          </div>
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap gap-1.5">
-                          {repo.tags.map((tag) => <Pill key={`${repo.id}-${tag}`}>{tag}</Pill>)}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button className={btnSecondary} type="button" onClick={() => setSelectedGithubRepoId(repo.id)}>
-                            <Eye size={15} /> 查看详情
-                          </button>
-                          <button className={btnSecondary} type="button" onClick={() => {
-                            const full = githubRepos.find((item) => item.id === repo.id);
-                            if (full) {
-                              void saveGithubRepoAsSource(full);
-                            }
-                          }} disabled={busy === `github-source-${repo.id}`}>
-                            <Save size={15} /> {busy === `github-source-${repo.id}` ? "保存中" : "存为来源"}
-                          </button>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </div>
-              </Panel>
-
-              <Panel title="主题簇" icon={<Layers3 size={16} />}>
-                {githubRadar.themeClusters.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-                    暂无主题聚合结果，刷新榜单后会把相近方向聚成可读的观察簇。
-                  </div>
-                ) : (
-                  <div className="grid gap-2.5">
-                    {githubRadar.themeClusters.map((theme) => (
-                      <article key={theme.key} className="rounded-xl border border-border bg-surface p-3.5 shadow-sm">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <h4 className="text-sm font-semibold text-slate-900">{theme.label}</h4>
-                            <p className="mt-1 text-xs text-slate-500">{theme.repoCount} 个仓库 · 平均分 {theme.averageScore}</p>
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {theme.languages.map((language) => <Pill key={`${theme.key}-${language}`} variant="accent">{language}</Pill>)}
-                          </div>
-                        </div>
-                        <div className="mt-2">
-                          <TextListOrEmpty values={theme.signals} emptyText="暂无主题信号。" />
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap gap-1.5">
-                          {theme.leadRepos.map((repo) => (
-                            <button
-                              key={repo.id}
-                              className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200"
-                              type="button"
-                              onClick={() => setSelectedGithubRepoId(repo.id)}
-                            >
-                              {repo.fullName}
-                            </button>
-                          ))}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(360px,520px)_minmax(0,1fr)]">
-              <Panel title="潜力仓库榜" icon={<GitBranch size={16} />}>
-                {githubRepos.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-border p-8 text-center">
-                    <p className="text-sm text-muted-foreground">还没有缓存的 GitHub 榜单，先刷新一次日榜。</p>
-                    <button className={btnPrimary + " mx-auto mt-4"} type="button" onClick={() => void refreshGithubTrends()} disabled={busy === "github-refresh"}>
-                      <RefreshCcw size={15} /> 刷新 GitHub 日榜
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid max-h-[720px] gap-2.5 overflow-auto pr-1">
-                    {githubRepos.map((repo) => (
-                      <article
-                        key={repo.id}
-                        onClick={() => setSelectedGithubRepoId(repo.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedGithubRepoId(repo.id);
-                          }
-                        }}
-                        role="button"
-                        tabIndex={0}
-                        className={cn(
-                          "cursor-pointer rounded-xl border bg-surface p-3.5 text-left shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20",
-                          selectedGithubRepo?.id === repo.id ? "border-primary ring-2 ring-primary/15" : "border-border hover:bg-slate-50",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold text-white">
-                                {repo.rank || "-"}
-                              </span>
-                              <h4 className="truncate text-sm font-semibold">{repo.fullName}</h4>
-                            </div>
-                            <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                              {repo.description || "暂无仓库描述。"}
-                            </p>
-                          </div>
-                          <button
-                            className={cn(
-                              "shrink-0 rounded-lg px-2 py-1 text-xs font-medium",
-                              repo.isFavorite ? "bg-zinc-900 text-white" : "bg-slate-100 text-slate-600",
-                            )}
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void toggleGithubFavorite(repo);
-                            }}
-                            disabled={busy === `github-favorite-${repo.id}`}
-                          >
-                            {repo.isFavorite ? "已收藏" : "收藏"}
-                          </button>
-                        </div>
-                        <div className="mt-3 grid grid-cols-4 gap-2 text-xs">
-                          <RepoMiniStat label="Score" value={repo.score} />
-                          <RepoMiniStat label="Stars" value={repo.stars} />
-                          <RepoMiniStat label="24h" value={repo.starDelta24h} />
-                          <RepoMiniStat label="7d" value={repo.starDelta7d} />
-                        </div>
-                        <div className="mt-2.5 flex flex-wrap gap-1.5">
-                          {repo.language && <Pill variant="accent">{repo.language}</Pill>}
-                          {repo.topics.slice(0, 4).map((topic) => <Pill key={topic}>{topic}</Pill>)}
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-              </Panel>
-
-              <Panel title="仓库详情" icon={<GitBranch size={16} />}>
-                {!selectedGithubRepo ? (
-                  <div className="py-12 text-center text-sm text-muted-foreground">选择一个仓库查看详情。</div>
-                ) : (
-                  <div className="grid gap-3">
-                    <article className={cn("rounded-2xl border border-border p-4", softGradientCls)}>
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Pill variant="brand">Score {selectedGithubRepo.score}</Pill>
-                            {selectedGithubRepo.language && <Pill variant="accent">{selectedGithubRepo.language}</Pill>}
-                            {selectedGithubRepo.license && <Pill>{selectedGithubRepo.license}</Pill>}
-                          </div>
-                          <h3 className="mt-2.5 text-xl font-semibold leading-snug">{selectedGithubRepo.fullName}</h3>
-                          <p className="mt-1.5 text-sm leading-relaxed text-slate-600">{selectedGithubRepo.description || "暂无仓库描述。"}</p>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <a className={btnSecondary} href={selectedGithubRepo.htmlUrl} target="_blank" rel="noreferrer">
-                              <ExternalLink size={15} /> GitHub
-                            </a>
-                            {selectedGithubRepo.homepage && (
-                              <a className={btnGhost} href={selectedGithubRepo.homepage} target="_blank" rel="noreferrer">
-                                <ExternalLink size={15} /> 官网
-                              </a>
-                            )}
-                            <button className={btnSecondary} type="button" onClick={() => void toggleGithubFavorite(selectedGithubRepo)}>
-                              {selectedGithubRepo.isFavorite ? "取消收藏" : "收藏"}
-                            </button>
-                            <button className={btnPrimary} type="button" onClick={() => void analyzeGithubRepo()} disabled={busy === "github-analyze"}>
-                              <Sparkles size={15} /> {busy === "github-analyze" ? "分析中" : "AI 分析"}
-                            </button>
-                            <button className={btnSecondary} type="button" onClick={() => void saveGithubRepoAsSource(selectedGithubRepo)} disabled={busy === `github-source-${selectedGithubRepo.id}`}>
-                              <Save size={15} /> {busy === `github-source-${selectedGithubRepo.id}` ? "保存中" : "存为来源"}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-
-                    <div className="grid gap-3 md:grid-cols-4">
-                      <RepoSignalCard label="Stars" value={selectedGithubRepo.stars} caption={`24h +${selectedGithubRepo.starDelta24h}`} />
-                      <RepoSignalCard label="Forks" value={selectedGithubRepo.forks} caption={`${selectedGithubRepo.watchers} watchers`} />
-                      <RepoSignalCard label="Issues" value={selectedGithubRepo.openIssues} caption="open issues" />
-                      <RepoSignalCard label="最近 Push" value={formatDate(selectedGithubRepo.pushedAt)} caption={formatDate(selectedGithubRepo.createdAtGithub)} />
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedGithubRepo.topics.map((topic) => <Pill key={topic}>{topic}</Pill>)}
-                    </div>
-
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      <CompactIdeaCard title="AI 总结" value={selectedGithubRepo.analysis?.summary || "点击 AI 分析后生成仓库总结。"} />
-                      <CompactIdeaCard title="为什么在涨">
-                        <TextListOrEmpty values={selectedGithubRepo.analysis?.whyTrending ?? []} />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="潜力理由">
-                        <TextListOrEmpty values={selectedGithubRepo.analysis?.potentialReasons ?? []} />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="学习价值">
-                        <TextListOrEmpty values={selectedGithubRepo.analysis?.learningValue ?? []} />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="适用场景">
-                        <TextListOrEmpty values={selectedGithubRepo.analysis?.useCases ?? []} />
-                      </CompactIdeaCard>
-                      <CompactIdeaCard title="风险信号">
-                        <TextListOrEmpty values={selectedGithubRepo.analysis?.riskSignals ?? []} />
-                      </CompactIdeaCard>
-                    </div>
-
-                    {githubAnalyzeExecution && (
-                      <div className="rounded-xl border border-border bg-surface p-3">
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span>模型：{githubAnalyzeExecution.model}</span>
-                          <span>·</span>
-                          <span>{githubAnalyzeExecution.usedFallback ? "当前是 fallback 分析" : "已使用真实模型分析"}</span>
-                        </div>
-                        <TextList values={githubAnalyzeExecution.steps} />
-                      </div>
-                    )}
-
-                    <Field label="研究备注">
-                      <textarea
-                        className={textareaCls + " min-h-[120px]"}
-                        placeholder="记录你想研究它的原因、可借鉴功能、后续文章选题或产品灵感。"
-                        value={githubNoteDraft}
-                        onChange={(e) => setGithubNoteDraft(e.target.value)}
-                      />
-                    </Field>
-                    <div className="flex justify-end">
-                      <button className={btnSecondary} type="button" onClick={() => void saveGithubNote()} disabled={busy === "github-note"}>
-                        <Save size={15} /> 保存备注
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Panel>
-            </div>
-          </div>
+          <GithubTrendsTab
+            busy={busy}
+            filters={githubFilters}
+            repositories={githubRepos}
+            languages={githubLanguages}
+            topics={githubTopics}
+            meta={githubMeta}
+            radar={githubRadar}
+            radarDigest={githubRadarDigest}
+            radarExecution={githubRadarExecution}
+            selectedRepository={selectedGithubRepo}
+            noteDraft={githubNoteDraft}
+            analyzeExecution={githubAnalyzeExecution}
+            onSetFilters={setGithubFilters}
+            onUpdateFilters={(next) => void updateGithubFilters(next)}
+            onSearch={() => void loadGithubTrends(githubFilters)}
+            onRefresh={() => void refreshGithubTrends()}
+            onSelectRepository={setSelectedGithubRepoId}
+            onToggleFavorite={(repo) => void toggleGithubFavorite(repo)}
+            onAnalyzeRepository={() => void analyzeGithubRepo()}
+            onAnalyzeRadar={() => void analyzeGithubRadarDigest()}
+            onSaveRadarAsSource={() => void saveGithubRadarAsSource()}
+            onSaveRepositoryAsSource={(repo) => void saveGithubRepoAsSource(repo)}
+            onNoteDraftChange={setGithubNoteDraft}
+            onSaveNote={() => void saveGithubNote()}
+          />
         )}
 
-        {showRecordAgentEditor && (
-          <div className="fixed inset-0 z-50 bg-slate-950/40 p-4 backdrop-blur-sm">
-            <div className="mx-auto flex max-h-[calc(100vh-2rem)] max-w-4xl flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
-              <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-4">
-                <div>
-                  <h3 className="text-base font-semibold">新增记录</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">通过 Agent 把原始八股文整理成面试可直接复述的学习卡，再保存进题库。</p>
-                </div>
-                <button className="rounded-lg p-2 text-muted-foreground hover:bg-slate-50 hover:text-foreground" type="button" onClick={closeRecordAgentEditor}>
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="flex-1 overflow-auto p-5">
-                <div className="grid gap-3">
-                  <article className={cn("rounded-2xl border border-border p-4", softGradientCls)}>
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <h4 className="text-sm font-semibold">八股整理 Agent</h4>
-                        <p className="mt-1 text-xs text-slate-600">
-                          直接贴原始八股文、技术摘录或零散知识点，Agent 会改写成面试时能直接复述的一张学习卡。
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Pill variant="accent">GLM-5.1</Pill>
-                        <Pill variant={recordAgentExecution?.usedFallback ? "warn" : "brand"}>
-                          {recordAgentExecution?.usedFallback ? "Fallback" : "Agent"}
-                        </Pill>
-                      </div>
-                    </div>
-                  </article>
-                  <Field label="原始内容">
-                    <textarea
-                      className={textareaCls + " min-h-[240px]"}
-                      placeholder="例如把一整段 Redis、MySQL、React、消息队列、缓存、系统设计等八股文直接贴进来。"
-                      value={recordText}
-                      onChange={(e) => setRecordText(e.target.value)}
-                    />
-                  </Field>
-                  <Field label="补充要求">
-                    <input
-                      className={inputCls}
-                      placeholder="可选：例如偏前端面试、要更口语化、希望补项目连接点。"
-                      value={recordContext}
-                      onChange={(e) => setRecordContext(e.target.value)}
-                    />
-                  </Field>
-                  <div className="flex flex-wrap gap-2">
-                    <button className={btnPrimary} type="button" onClick={() => void handleRecordAgentGenerate()} disabled={busy === "record-agent"}>
-                      <Sparkles size={15} /> {busy === "record-agent" ? "Agent 生成中" : "生成面试卡"}
-                    </button>
-                    <button className={btnSecondary} type="button" onClick={() => void handleRecordSave()} disabled={busy === "record-save"}>
-                      <Save size={15} /> 保存到题库
-                    </button>
-                  </div>
-                  {recordAgentExecution && (
-                    <div className="rounded-xl border border-border bg-surface p-3">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span>模型：{recordAgentExecution.model}</span>
-                        <span>·</span>
-                        <span>{recordAgentExecution.usedFallback ? "当前是 fallback 草稿" : "已使用真实模型生成"}</span>
-                      </div>
-                      <TextList values={recordAgentExecution.steps} />
-                    </div>
-                  )}
-                  <div className="grid gap-3 rounded-xl border border-border bg-slate-50 p-3.5">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold">Agent 草稿</h4>
-                      <Pill variant="accent">{recordDraft.questionType || "八股"}</Pill>
-                    </div>
-                    <Field label="面试题">
-                      <textarea
-                        className={textareaCls + " min-h-[96px]"}
-                        value={recordDraft.question}
-                        onChange={(e) => setRecordDraft({ ...recordDraft, question: e.target.value })}
-                      />
-                    </Field>
-                    <Field label="面试答案">
-                      <textarea
-                        className={textareaCls + " min-h-[220px]"}
-                        value={recordDraft.answer}
-                        onChange={(e) => setRecordDraft({ ...recordDraft, answer: e.target.value })}
-                      />
-                    </Field>
-                    <div className="grid grid-cols-2 gap-3">
-                      <Field label="主题">
-                        <input
-                          className={inputCls}
-                          list="topic-options"
-                          value={recordDraft.topicName}
-                          onChange={(e) => setRecordDraft({ ...recordDraft, topicName: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="标签">
-                        <input
-                          className={inputCls}
-                          value={recordDraft.tags}
-                          onChange={(e) => setRecordDraft({ ...recordDraft, tags: e.target.value })}
-                        />
-                      </Field>
-                    </div>
-                    <Field label="面试提示">
-                      <textarea
-                        className={textareaCls + " min-h-[156px]"}
-                        value={recordDraft.note}
-                        onChange={(e) => setRecordDraft({ ...recordDraft, note: e.target.value })}
-                      />
-                    </Field>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
-                <button className={btnSecondary} type="button" onClick={closeRecordAgentEditor}>取消</button>
-                <button className={btnPrimary} type="button" onClick={() => void handleRecordSave()} disabled={busy === "record-save"}>
-                  <Save size={15} /> 保存到题库
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        <RecordAgentEditor
+          busy={busy}
+          isOpen={showRecordAgentEditor}
+          mode={recordAgentMode}
+          recordText={recordText}
+          recordContext={recordContext}
+          recordDraft={recordDraft}
+          execution={recordAgentExecution}
+          articles={recordArticles}
+          articleId={recordArticleId}
+          batchMaxCards={recordBatchMaxCards}
+          batchDrafts={recordBatchDrafts}
+          onClose={closeRecordAgentEditor}
+          onModeChange={(mode) => {
+            setRecordAgentMode(mode);
+            setRecordAgentExecution(null);
+          }}
+          onRecordTextChange={setRecordText}
+          onRecordContextChange={setRecordContext}
+          onRecordDraftChange={setRecordDraft}
+          onArticleIdChange={setRecordArticleId}
+          onBatchMaxCardsChange={setRecordBatchMaxCards}
+          onGenerateSingle={() => void handleRecordAgentGenerate()}
+          onGenerateBatch={() => void handleRecordBatchGenerate()}
+          onSaveSingle={() => void handleRecordSave()}
+          onSaveBatch={() => void handleRecordBatchSave()}
+          onUpdateBatchDraft={updateRecordBatchDraft}
+          onRemoveBatchDraft={removeRecordBatchDraft}
+          onSelectAllBatchDrafts={(selected) => {
+            setRecordBatchDrafts((drafts) => drafts.map((draft) => ({ ...draft, selected })));
+          }}
+        />
 
         {/* ─── Sprint ─── */}
         {activeTab === "sprint" && (
@@ -5892,11 +5236,11 @@ export default function Home() {
           <div className="grid gap-4">
             <div className="flex items-end justify-between gap-4">
               <div>
-                <h3 className="text-lg font-semibold">复盘</h3>
-                <p className="mt-1 text-sm text-muted-foreground">低分题、薄弱点和待补八股会集中在这里。</p>
+                <h3 className="text-lg font-semibold">面试报告</h3>
+                <p className="mt-1 text-sm text-muted-foreground">只展示模拟面试的总评、逐题诊断和更好的回答示例。</p>
               </div>
               <div className="flex gap-2">
-                <button className={btnSecondary} type="button" onClick={() => void loadReviews(reviewFilters)}>
+                <button className={btnSecondary} type="button" onClick={() => void loadSessions()}>
                   <RefreshCcw size={15} /> 刷新
                 </button>
                 <button className={btnSecondary} type="button" onClick={() => void handleExportData()} disabled={busy === "export"}>
@@ -5904,59 +5248,64 @@ export default function Home() {
                 </button>
               </div>
             </div>
-            <Panel title="复盘任务池" icon={<ListChecks size={16} />}>
-              <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_160px_auto_auto]">
-                <input className={inputCls} placeholder="公司" value={reviewFilters.company}
-                  onChange={(e) => setReviewFilters({ ...reviewFilters, company: e.target.value })} />
-                <input className={inputCls} placeholder="主题" value={reviewFilters.topic}
-                  onChange={(e) => setReviewFilters({ ...reviewFilters, topic: e.target.value })} />
-                <input className={inputCls} placeholder="轮次" value={reviewFilters.roundType}
-                  onChange={(e) => setReviewFilters({ ...reviewFilters, roundType: e.target.value })} />
-                <select className={inputCls} value={reviewFilters.status}
-                  onChange={(e) => setReviewFilters({ ...reviewFilters, status: e.target.value })}>
-                  <option value="">全部状态</option>
-                  <option value="todo">待处理</option>
-                  <option value="doing">处理中</option>
-                  <option value="done">已完成</option>
-                </select>
-                <button className={btnPrimary} type="button" onClick={() => void loadReviews(reviewFilters)}>
-                  <Search size={15} /> 筛选
-                </button>
-                <button className={btnGhost} type="button" onClick={() => {
-                  const next = { company: "", topic: "", roundType: "", status: "" };
-                  setReviewFilters(next);
-                  void loadReviews(next);
-                }}>重置</button>
-              </div>
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                <ScoreCard label="待处理" value={reviewCards.filter((card) => card.status === "todo").length} />
-                <ScoreCard label="处理中" value={reviewCards.filter((card) => card.status === "doing").length} />
-                <ScoreCard label="已完成" value={reviewCards.filter((card) => card.status === "done").length} />
-              </div>
-            </Panel>
-            {latestFinishedSession && (
-              <Panel title="最近复盘报告" icon={<BarChart3 size={16} />}>
-                <div className="grid grid-cols-3 gap-3">
-                  <ScoreCard label="总分" value={latestFinishedSession.score.overall ?? 0} />
-                  <ScoreCard label="八股" value={latestFinishedSession.score.knowledge ?? 0} />
-                  <ScoreCard label="表达" value={latestFinishedSession.score.expression ?? 0} />
-                </div>
-                <p className="mt-3 text-sm text-slate-500 leading-relaxed">{latestFinishedSession.summary}</p>
-                <div className="mt-3.5 grid gap-3">
-                  {latestFinishedSession.turns.filter((t) => t.answer).slice(0, 5).map((turn) => (
-                    <article key={turn.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
-                      <div className="flex items-start justify-between gap-3">
-                        <h5 className="text-sm font-semibold">第 {turn.order} 题：{turn.question}</h5>
-                        <Pill variant="accent">准确 {scoreOrDash(turn.score.accuracy)}</Pill>
-                      </div>
-                      {turn.feedback && <p className="mt-2 text-sm text-slate-500 leading-relaxed">{turn.feedback}</p>}
-                      {turn.betterAnswer && <p className="mt-1 text-sm text-slate-500 leading-relaxed">{turn.betterAnswer}</p>}
-                    </article>
-                  ))}
-                </div>
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(300px,420px)_1fr]">
+              <Panel title="报告列表" icon={<ListChecks size={16} />}>
+                {sessions.filter((session) => session.status === "finished").length === 0 ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">完成一轮模拟后会生成报告。</div>
+                ) : (
+                  <div className="grid max-h-[640px] gap-3 overflow-auto pr-1">
+                    {sessions.filter((session) => session.status === "finished").map((session) => (
+                      <button
+                        key={session.id}
+                        className={cn(
+                          "rounded-xl border bg-surface p-4 text-left shadow-sm transition-colors hover:bg-sky-50",
+                          selectedSessionDetail?.id === session.id ? "border-primary ring-2 ring-primary/15" : "border-border",
+                        )}
+                        type="button"
+                        onClick={() => setSelectedSessionId(session.id)}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <h4 className="text-sm font-semibold">{session.company?.name ?? "未命名公司"} / {session.targetRole ?? "目标岗位"}</h4>
+                          <Pill variant="accent">{scoreOrDash(session.score.overall)}</Pill>
+                        </div>
+                        <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">{session.summary || "暂无总评"}</p>
+                        <p className="mt-2 text-xs text-muted-foreground">{formatDate(session.updatedAt)} · {roundTypeLabels[session.roundType]}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </Panel>
-            )}
-            <ReviewList cards={reviewCards} onStatus={updateReviewStatus} onCreateTask={createReviewTask} />
+              <Panel title="报告详情" icon={<BarChart3 size={16} />}>
+                {!selectedSessionDetail || selectedSessionDetail.status !== "finished" ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">选择一份已完成报告查看详情。</div>
+                ) : (
+                  <div className="grid gap-4">
+                    <div className="grid grid-cols-3 gap-3">
+                      <ScoreCard label="总分" value={selectedSessionDetail.score.overall ?? 0} />
+                      <ScoreCard label="八股" value={selectedSessionDetail.score.knowledge ?? 0} />
+                      <ScoreCard label="表达" value={selectedSessionDetail.score.expression ?? 0} />
+                    </div>
+                    <article className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                      <h4 className="text-sm font-semibold">总评</h4>
+                      <p className="mt-2 text-sm leading-7 text-slate-600">{selectedSessionDetail.summary || "暂无总评"}</p>
+                    </article>
+                    <div className="grid gap-3">
+                      {selectedSessionDetail.turns.filter((t) => t.answer).map((turn) => (
+                        <article key={turn.id} className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                          <div className="flex items-start justify-between gap-3">
+                            <h5 className="text-sm font-semibold">第 {turn.order} 题：{turn.question}</h5>
+                            <Pill variant="accent">准确 {scoreOrDash(turn.score.accuracy)}</Pill>
+                          </div>
+                          {turn.answer && <p className="mt-2 text-sm leading-6 text-slate-600"><strong>原回答：</strong>{turn.answer}</p>}
+                          {turn.feedback && <p className="mt-2 text-sm leading-6 text-slate-600"><strong>诊断：</strong>{turn.feedback}</p>}
+                          {turn.betterAnswer && <p className="mt-2 text-sm leading-6 text-slate-600"><strong>改进示例：</strong>{turn.betterAnswer}</p>}
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Panel>
+            </div>
           </div>
         )}
 
@@ -6025,9 +5374,9 @@ export default function Home() {
           <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <ScoreCard label="平均模拟分" value={averageInterviewScore} />
-              <ScoreCard label="复习完成率" value={sprintDoneRate} />
-              <ScoreCard label="掌握度达标" value={cards.length ? Math.round((cards.filter((c) => c.mastery >= 3).length / cards.length) * 100) : 0} />
-              <ScoreCard label="错题清理率" value={reviewCards.length ? Math.round(((reviewCards.length - todoReviewCount) / reviewCards.length) * 100) : 0} />
+              <ScoreCard label="模拟轮次" value={sessions.length} />
+              <ScoreCard label="题库记录" value={cards.length} />
+              <ScoreCard label="岗位目标" value={jobTargets.length} />
             </div>
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
               <Panel title="准备度仪表盘" icon={<Gauge size={16} />}>
@@ -6072,20 +5421,24 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-              <Panel title="知识掌握分布" icon={<BookOpen size={16} />}>
-                <div className="grid gap-3">
-                  {masteryRows.map((row) => (
-                    <div key={row.label} className="rounded-xl border border-border p-4 shadow-sm">
-                      <div className="flex items-center justify-between gap-3">
-                        <h5 className="text-sm font-semibold">{row.label}</h5>
-                        <Pill>{row.count}</Pill>
+              <Panel title="题库分布" icon={<BookOpen size={16} />}>
+                {cards.length === 0 ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">录入题库后展示主题分布。</div>
+                ) : (
+                  <div className="grid gap-3">
+                    {Array.from(new Map(cards.map((card) => [card.topic?.name ?? "通用", cards.filter((item) => (item.topic?.name ?? "通用") === (card.topic?.name ?? "通用")).length]))).map(([label, count]) => (
+                      <div key={label} className="rounded-xl border border-border p-4 shadow-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <h5 className="text-sm font-semibold">{label}</h5>
+                          <Pill>{count}</Pill>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-border">
+                          <div className={cn("h-full rounded-full", progressGradientCls)} style={{ width: `${Math.round((count / Math.max(cards.length, 1)) * 100)}%` }} />
+                        </div>
                       </div>
-                      <div className="mt-3 h-2 overflow-hidden rounded-full bg-border">
-                        <div className={cn("h-full rounded-full", progressGradientCls)} style={{ width: `${Math.round((row.count / Math.max(...masteryRows.map((item) => item.count), 1)) * 100)}%` }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
               </Panel>
 
               <Panel title="冲刺完成排行" icon={<ListChecks size={16} />}>
@@ -6114,13 +5467,282 @@ export default function Home() {
               <Panel title="最近面试记录" icon={<MessageSquareText size={16} />}>
                 <SessionList sessions={sessions.slice(0, 8)} />
               </Panel>
-              <Panel title="薄弱主题" icon={<Tags size={16} />}>
-                <WeaknessList reviewCards={reviewCards} />
+              <Panel title="最近报告摘要" icon={<Tags size={16} />}>
+                {!latestFinishedSession ? (
+                  <div className="py-8 text-center text-sm text-muted-foreground">暂无已完成面试报告。</div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-surface p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <h5 className="text-sm font-semibold">{latestFinishedSession.company?.name ?? "未命名公司"} / {latestFinishedSession.targetRole ?? "目标岗位"}</h5>
+                      <Pill variant="accent">{scoreOrDash(latestFinishedSession.score.overall)}</Pill>
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">{latestFinishedSession.summary}</p>
+                    <button className={btnGhost + " mt-3"} type="button" onClick={() => { setSelectedSessionId(latestFinishedSession.id); setActiveTab("review"); }}>
+                      查看报告
+                    </button>
+                  </div>
+                )}
               </Panel>
             </div>
           </div>
         )}
       </main>
+
+      {activeDialog === "experience" && (
+        <DialogShell
+          title="录入公司面经"
+          description="只需要粘贴原文。AI 会先结构化成轮次、题目、标签和可信度，确认后再保存。"
+          icon={<Building2 size={18} />}
+          onClose={() => setActiveDialog(null)}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="公司">
+                  <input className={inputCls} list="company-options" placeholder="如 Google" value={experienceCompanyName} onChange={(e) => setExperienceCompanyName(e.target.value)} />
+                </Field>
+                <Field label="岗位">
+                  <input className={inputCls} placeholder="如 后端工程师 / SWE" value={experienceRoleName} onChange={(e) => setExperienceRoleName(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="面经原文">
+                <textarea className={textareaCls + " min-h-[320px]"} placeholder="粘贴整段面经：公司、岗位、轮次、题目、体验、结果..." value={experienceText} onChange={(e) => setExperienceText(e.target.value)} />
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <button className={btnSecondary} type="button" onClick={() => void handleExperienceParse()} disabled={busy === "experience-parse"}>
+                  <Sparkles size={15} /> AI 结构化
+                </button>
+                <button className={btnPrimary} type="button" onClick={() => void handleExperienceSave()} disabled={!experienceDraft || busy === "experience-save"}>
+                  <Save size={15} /> 保存面经
+                </button>
+              </div>
+            </div>
+            <div className="rounded-lg border border-sky-100 bg-sky-50/60 p-4">
+              {!experienceDraft ? (
+                <EmptyBeauty title="等待结构化" description="点击 AI 结构化后，这里会出现公司、岗位、轮次、问题和标签预览。" />
+              ) : (
+                <div className="grid gap-3">
+                  <div className="rounded-lg border border-sky-100 bg-white p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-950">{experienceDraft.companyName || "目标公司"} / {experienceDraft.roleName}</h4>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">{experienceDraft.summary}</p>
+                      </div>
+                      <Pill variant="brand">{experienceDraft.confidence}</Pill>
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {experienceDraft.tags.map((tag) => <Pill key={tag}>{tag}</Pill>)}
+                    </div>
+                  </div>
+                  {experienceDraft.rounds.map((round) => (
+                    <article key={`${round.order}-${round.roundType}`} className="rounded-lg border border-sky-100 bg-white p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <h5 className="text-sm font-semibold text-slate-950">第 {round.order} 轮 · {round.roundType}</h5>
+                        <Pill variant="accent">{round.questions.length} 题</Pill>
+                      </div>
+                      <TextList values={round.questions} />
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogShell>
+      )}
+
+      {activeDialog === "jd" && (
+        <DialogShell
+          title="匹配目标 JD"
+          description="输入公司、岗位和 JD，系统会结合当前简历生成职责、技能、风险点和匹配缺口。"
+          icon={<Target size={18} />}
+          onClose={() => setActiveDialog(null)}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(300px,1fr)]">
+            <div className="grid gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="公司">
+                  <input className={inputCls} placeholder="可选" value={jdCompanyName} onChange={(e) => setJdCompanyName(e.target.value)} />
+                </Field>
+                <Field label="岗位">
+                  <input className={inputCls} placeholder="如 AI 平台后端" value={jdRoleName} onChange={(e) => setJdRoleName(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="JD 原文">
+                <textarea className={textareaCls + " min-h-[340px]"} placeholder="粘贴岗位描述，越完整越好。" value={jdText} onChange={(e) => setJdText(e.target.value)} />
+              </Field>
+              <button className={btnPrimary} type="button" onClick={() => void handleJobTargetParse()} disabled={busy === "job-parse"}>
+                <Sparkles size={15} /> 生成岗位目标
+              </button>
+            </div>
+            <div className="grid gap-3">
+              {selectedResume && (
+                <div className="rounded-lg border border-sky-100 bg-sky-50/70 p-4">
+                  <p className="text-xs font-semibold text-slate-500">当前简历</p>
+                  <h4 className="mt-1 text-sm font-semibold text-slate-950">{selectedResume.title}</h4>
+                  <p className="mt-2 line-clamp-4 text-sm leading-6 text-slate-600">{selectedResume.parsed.summary || selectedResume.rawText}</p>
+                </div>
+              )}
+              {!selectedJobTarget ? (
+                <EmptyBeauty title="还没有岗位报告" description="生成后会在这里看到匹配分、缺口技能和项目话术建议。" />
+              ) : (
+                <div className="grid gap-3 rounded-lg border border-sky-100 bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold text-slate-500">最新匹配</p>
+                      <h4 className="mt-1 text-sm font-semibold text-slate-950">{selectedJobTarget.company?.name ?? "目标公司"} / {selectedJobTarget.roleName}</h4>
+                    </div>
+                    <Pill variant="brand">匹配 {selectedJobTarget.match.matchScore || 0}</Pill>
+                  </div>
+                  <DataGroup title="面试重点"><TextList values={selectedJobTarget.parsed.interviewFocus} /></DataGroup>
+                  <DataGroup title="待补缺口"><TextList values={selectedJobTarget.match.gaps} /></DataGroup>
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogShell>
+      )}
+
+      {activeDialog === "resume" && (
+        <DialogShell
+          title="解析简历"
+          description="粘贴文本版简历，生成结构化经历、技能、项目和面试追问。"
+          icon={<FileText size={18} />}
+          onClose={() => setActiveDialog(null)}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
+            <div className="grid gap-3">
+              <Field label="简历标题">
+                <input className={inputCls} placeholder="如 后端主投版" value={resumeTitle} onChange={(e) => setResumeTitle(e.target.value)} />
+              </Field>
+              <Field label="简历文本">
+                <textarea className={textareaCls + " min-h-[360px]"} placeholder="粘贴简历文本" value={resumeText} onChange={(e) => setResumeText(e.target.value)} />
+              </Field>
+              <button className={btnPrimary} type="button" onClick={() => void handleResumeParse()} disabled={busy === "resume-parse"}>
+                <Sparkles size={15} /> 解析并保存
+              </button>
+            </div>
+            <div className="grid gap-3">
+              {resumes.length === 0 ? (
+                <EmptyBeauty title="还没有简历" description="解析后会沉淀为简历档案，并可用于 JD 匹配和模拟面试。" />
+              ) : (
+                resumes.slice(0, 4).map((resume) => (
+                  <button
+                    key={resume.id}
+                    type="button"
+                    onClick={() => setSelectedResumeId(resume.id)}
+                    className={cn(
+                      "rounded-lg border bg-white p-4 text-left shadow-sm transition",
+                      selectedResumeId === resume.id ? "border-sky-300 ring-4 ring-sky-100" : "border-sky-100 hover:bg-sky-50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <strong className="text-sm text-slate-950">{resume.title}</strong>
+                      <Pill>{formatDate(resume.updatedAt)}</Pill>
+                    </div>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">{resume.parsed.summary || resume.rawText}</p>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </DialogShell>
+      )}
+
+      {activeDialog === "interview" && (
+        <DialogShell
+          title="启动模拟面试"
+          description="选择模拟模式和轮次。开始后不会中途展示完整评分，结束时统一生成复盘。"
+          icon={<MessageSquareText size={18} />}
+          onClose={() => setActiveDialog(null)}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.95fr)_minmax(320px,1.05fr)]">
+            <div className="grid gap-3">
+              <div className="grid grid-cols-3 gap-2 rounded-lg border border-sky-100 bg-sky-50 p-1">
+                {(Object.keys(interviewModeLabels) as InterviewMode[]).map((mode) => (
+                  <button key={mode}
+                    className={cn("rounded-md px-3 py-2 text-sm font-semibold transition",
+                      interviewMode === mode ? "bg-white text-sky-700 shadow-sm" : "text-slate-500 hover:text-slate-950")}
+                    onClick={() => setInterviewMode(mode)} type="button">
+                    {interviewModeLabels[mode]}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="轮次">
+                  <select className={inputCls} value={roundType} onChange={(e) => setRoundType(e.target.value as RoundType)}>
+                    {(Object.keys(roundTypeLabels) as RoundType[]).map((type) => <option key={type} value={type}>{roundTypeLabels[type]}</option>)}
+                  </select>
+                </Field>
+                <Field label="目标公司">
+                  <input className={inputCls} placeholder={selectedJobTarget?.company?.name ?? "可选"} value={targetCompanyName} onChange={(e) => setTargetCompanyName(e.target.value)} />
+                </Field>
+              </div>
+              <Field label="目标岗位">
+                <input className={inputCls} placeholder={selectedJobTarget?.roleName ?? "如 后端工程师"} value={targetRole} onChange={(e) => setTargetRole(e.target.value)} />
+              </Field>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <button className={btnPrimary} type="button" onClick={() => { setDeliveryMode("text"); void handleStartInterview(); setActiveDialog(null); }} disabled={busy === "interview-start"}>
+                  <Play size={15} /> 文字模拟
+                </button>
+                <button className={btnSecondary} type="button" onClick={() => { setDeliveryMode("voice"); void handleStartInterview(); setActiveDialog(null); }} disabled={busy === "interview-start"}>
+                  <Mic size={15} /> 语音入口
+                </button>
+              </div>
+            </div>
+            <div className="grid gap-3">
+              <div className="rounded-lg border border-sky-100 bg-sky-50/70 p-4">
+                <p className="text-xs font-semibold text-slate-500">上下文优先级</p>
+                <ol className="mt-3 grid gap-2 text-sm text-slate-600">
+                  <li>1. JD 目标：{selectedJobTarget?.roleName ?? "暂未选择"}</li>
+                  <li>2. 简历：{selectedResume?.title ?? "暂未选择"}</li>
+                  <li>3. 公司题库：{targetCompanyName || selectedJobTarget?.company?.name || "可选"}</li>
+                  <li>4. 历史模拟：{sessions.length} 轮</li>
+                </ol>
+              </div>
+              <div className="rounded-lg border border-sky-100 bg-white p-4">
+                <p className="text-sm font-semibold text-slate-950">面试强度</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">{candidateTarget.summary}。系统会按薪资和级别提高项目深挖、系统设计和反事实追问比例。</p>
+              </div>
+            </div>
+          </div>
+        </DialogShell>
+      )}
+
+      {activeDialog === "sprint" && (
+        <DialogShell
+          title="生成冲刺计划"
+          description="把目标公司、岗位和面试日期拆成每日任务，覆盖八股、项目话术、模拟和报告。"
+          icon={<CalendarDays size={18} />}
+          onClose={() => setActiveDialog(null)}
+        >
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.8fr)_minmax(300px,1fr)]">
+            <div className="grid gap-3">
+              <div className="grid grid-cols-4 gap-2">
+                {[3, 5, 7, 14].map((days) => (
+                  <button key={days}
+                    className={cn("rounded-lg border px-3 py-2 text-sm font-semibold transition",
+                      sprintDays === days ? "border-sky-300 bg-sky-600 text-white" : "border-sky-100 bg-white text-slate-600 hover:bg-sky-50")}
+                    type="button" onClick={() => setSprintDays(days)}>
+                    {days} 天
+                  </button>
+                ))}
+              </div>
+              <button className={btnPrimary} type="button" onClick={() => { void handleGenerateSprint(); setActiveDialog(null); }} disabled={busy === "sprint-generate"}>
+                <Sparkles size={15} /> 生成计划
+              </button>
+            </div>
+            <div className="rounded-lg border border-sky-100 bg-sky-50/70 p-4">
+              <p className="text-xs font-semibold text-slate-500">计划会优先覆盖</p>
+              <TextList values={[
+                selectedJobTarget ? `${selectedJobTarget.company?.name ?? "目标公司"} / ${selectedJobTarget.roleName}` : "当前选择的岗位目标",
+                `${cards.length} 条题库记录`,
+                `${sessions.length} 轮历史模拟`,
+                "至少一次完整模拟与报告查看",
+              ]} />
+            </div>
+          </div>
+        </DialogShell>
+      )}
 
       {/* Datalists */}
       <datalist id="company-options">

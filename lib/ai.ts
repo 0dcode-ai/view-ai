@@ -252,7 +252,7 @@ async function generateJson<T>(messages: ChatMessage[], fallback: T): Promise<T>
 
   const baseUrl = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
   const requestBody = {
-    model: process.env.OPENAI_MODEL || "GLM-5.1",
+    model: process.env.OPENAI_MODEL || "deepseek-v4-pro",
     temperature: 0.35,
     messages,
   };
@@ -334,7 +334,7 @@ export async function suggestKnowledge(input: KnowledgeInput): Promise<Knowledge
             masterySuggestion: "0-4",
             priorityScore: "0-100",
             improvedAnswer: "更结构化的参考答案，保持中文",
-            note: "一句录入备注",
+            note: "按 Markdown 输出题解式学习稿，包含：一句话结论、面试回答、考点定位、思路、步骤、示例、复杂度与取舍、易错点、常见追问、项目连接、复习清单。",
           },
           input,
         }),
@@ -737,7 +737,18 @@ function mockKnowledgeSuggestion(input: KnowledgeInput): KnowledgeSuggestion {
     improvedAnswer: input.answer
       ? `可以按「定义 -> 原理 -> 场景 -> 风险/优化」组织：\n${input.answer}`
       : "建议补充：核心概念、底层机制、真实项目场景、常见坑和权衡。",
-    note: "AI 已给出分类建议，请按你的真实面经确认后保存。",
+    note:
+      `## 一句话结论\n${topicName} 这类题要先讲定义和作用，再讲核心机制、适用场景、风险边界和项目落地。\n\n` +
+      `## 面试回答\n${input.answer ? `可以按「定义 -> 原理 -> 场景 -> 风险/优化」组织：\n${input.answer}` : "建议补充：核心概念、底层机制、真实项目场景、常见坑和权衡。"}\n\n` +
+      `## 考点定位\n- 判断你是否理解 ${topicName} 的真实使用场景。\n- 判断你能否把概念讲成工程方案。\n\n` +
+      `## 思路\n- 先给结论。\n- 再讲核心原理或流程。\n- 最后补充场景、取舍和项目连接。\n\n` +
+      `## 步骤\n- 定义问题。\n- 拆核心机制。\n- 说明适用场景。\n- 补充边界和坑。\n\n` +
+      `## 示例\n准备一个你在项目中使用或排查 ${topicName} 的例子。\n\n` +
+      `## 复杂度与取舍\n- 说明收益，也说明成本、限制或替代方案。\n\n` +
+      `## 易错点\n- 不要只背定义。\n- 不要忽略边界条件和线上风险。\n\n` +
+      `## 常见追问\n- 为什么这样设计？\n- 和替代方案相比有什么取舍？\n- 项目里怎么验证效果？\n\n` +
+      `## 项目连接\n- 按“背景 -> 动作 -> 结果 -> 复盘”准备一个真实项目场景。\n\n` +
+      `## 复习清单\n- 能 30 秒说出结论。\n- 能解释一个核心原理。\n- 能回答一个追问。\n- 能连到项目经历。`,
   };
 }
 

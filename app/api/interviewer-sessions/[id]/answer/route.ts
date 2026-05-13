@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 const bodySchema = z.object({
   answer: z.string().min(1),
   turnId: z.number().int().positive().optional(),
-  mode: z.enum(["turn", "discussion"]).default("turn"),
+  mode: z.enum(["turn", "discussion", "relink_discussion"]).default("turn"),
   title: z.string().optional(),
   sourceTurnId: z.number().int().positive().optional(),
   transcriptSource: z.literal("text").default("text"),
@@ -56,6 +56,49 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const focusTurn = parsed.data.turnId
     ? session.turns.find((turn) => turn.id === parsed.data.turnId) ?? null
     : null;
+
+  if (parsed.data.mode === "relink_discussion") {
+    if (!focusTurn || focusTurn.turnType !== "discussion") {
+      return NextResponse.json({ error: "请先选择一张自由讨论卡。" }, { status: 409 });
+    }
+    const sourceTurn = parsed.data.sourceTurnId
+      ? session.turns.find((turn) => turn.id === parsed.data.sourceTurnId && turn.turnType === "primary") ?? null
+      : null;
+    if (!sourceTurn) {
+      return NextResponse.json({ error: "请选择要归属的主问题。" }, { status: 409 });
+    }
+
+    const relinkedTurn = await prisma.interviewTurn.update({
+      where: { id: focusTurn.id },
+      data: {
+        questionSource: sourceTurn.questionSource,
+        turnType: "followup",
+        parentTurnId: sourceTurn.id,
+        intent: `从自由讨论归属到主问题 #${sourceTurn.order} 的补充追问。`,
+        idealAnswer: sourceTurn.idealAnswer,
+        answer: parsed.data.answer.trim(),
+        transcriptSource: parsed.data.transcriptSource,
+        answerDurationSec: parsed.data.answerDurationSec,
+      },
+    });
+
+    const refreshedRelinked = await prisma.interviewSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      include: {
+        company: true,
+        jobTarget: { include: { company: true, resumeProfile: true } },
+        resumeProfile: true,
+        turns: { orderBy: { order: "asc" } },
+      },
+    });
+
+    return NextResponse.json({
+      session: serializeInterviewSession(refreshedRelinked),
+      answeredTurn: serializeTurn(relinkedTurn),
+      nextTurn: null,
+      shouldFinish: false,
+    });
+  }
 
   if (parsed.data.mode === "discussion") {
     const discussionTurn = await prisma.interviewTurn.create({

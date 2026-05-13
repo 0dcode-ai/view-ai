@@ -144,7 +144,7 @@ const ideaSystemPrompt =
   "输出必须具体、像真实创始人在拆解方案，不要空话，不要讲大道理，不要输出 Markdown，只输出 JSON。";
 
 function resolveIdeaModelName() {
-  return process.env.OPENAI_MODEL || "GLM-5.1";
+  return process.env.OPENAI_MODEL || "deepseek-v4-pro";
 }
 
 function resolveIdeaModelLabel() {

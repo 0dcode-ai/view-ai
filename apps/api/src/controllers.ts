@@ -9,6 +9,8 @@ import {
   createAgentRunLogSchema,
   createExperienceSchema,
   createKnowledgeSchema,
+  bulkCreateKnowledgeSchema,
+  batchKnowledgeAgentSchema,
   createSourceDocumentSchema,
   generateSprintSchema,
   finishInterviewSchema,
@@ -67,6 +69,16 @@ class KnowledgeController {
   @Post()
   create(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.core.createKnowledge(user, parseBody(createKnowledgeSchema, body));
+  }
+
+  @Post("bulk")
+  bulkCreate(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.bulkCreateKnowledge(user, parseBody(bulkCreateKnowledgeSchema, body));
+  }
+
+  @Post("agent/batch")
+  batchAgent(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.batchKnowledgeAgent(user, parseBody(batchKnowledgeAgentSchema, body));
   }
 
   @Patch(":id/progress")

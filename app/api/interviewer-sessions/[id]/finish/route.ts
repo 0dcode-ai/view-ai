@@ -57,6 +57,7 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
     review: null,
   })) as MockInterviewTurn[];
   const summary = finishInterviewerSession(turns, interviewerContext);
+  const existingExpression = safeJsonParse<Record<string, unknown>>(session.expressionJson, {});
 
   await prisma.$transaction([
     ...session.turns.filter((turn) => turn.answer).map((turn) => {
@@ -87,9 +88,11 @@ export async function POST(_request: Request, context: { params: Promise<{ id: s
           ...summary.dimensionAverages,
         }),
         expressionJson: JSON.stringify({
+          ...existingExpression,
           agentName: "mock-interviewer",
           strengths: summary.strengths,
           nextActions: summary.nextActions,
+          interviewerSummary: summary,
         }),
       },
     }),

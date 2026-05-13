@@ -5,32 +5,32 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --color-background: #f8fafc;
+  --color-background: #f5f9ff;
   --color-surface: #ffffff;
   --color-card: #ffffff;
   --color-card-foreground: #0f172a;
   --color-popover: #ffffff;
   --color-popover-foreground: #0f172a;
   --color-foreground: #0f172a;
-  --color-muted: #f5f5f4;
-  --color-muted-foreground: #71717a;
-  --color-border: #e7e5e4;
-  --color-input: #e7e5e4;
-  --color-ring: #a8a29e;
-  --color-primary: #18181b;
+  --color-muted: #eef7ff;
+  --color-muted-foreground: #64748b;
+  --color-border: #d7e9fb;
+  --color-input: #cfe5fb;
+  --color-ring: #7cc7ff;
+  --color-primary: #2f80ed;
   --color-primary-foreground: #ffffff;
-  --color-primary-hover: #09090b;
-  --color-primary-soft: #f4f4f5;
-  --color-secondary: #f5f5f4;
+  --color-primary-hover: #1769d8;
+  --color-primary-soft: #e7f4ff;
+  --color-secondary: #eef7ff;
   --color-secondary-foreground: #0f172a;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-destructive: #ef4444;
-  --color-accent: #52525b;
+  --color-accent: #0ea5e9;
   --color-accent-foreground: #ffffff;
-  --color-accent-soft: #fafaf9;
-  --color-gradient-from: #18181b;
-  --color-gradient-to: #d6d3d1;
+  --color-accent-soft: #eefaff;
+  --color-gradient-from: #2f80ed;
+  --color-gradient-to: #8ee6d8;
 }
 
 @layer base {
@@ -48,7 +48,9 @@
     min-height: 100%;
     margin: 0;
     color: var(--color-foreground);
-    background: var(--color-background);
+    background:
+      linear-gradient(180deg, #f8fbff 0%, #f4f9ff 48%, #ffffff 100%);
+    background-attachment: fixed;
     font-family:
       ui-sans-serif,
       system-ui,

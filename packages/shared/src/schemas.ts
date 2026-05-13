@@ -76,6 +76,20 @@ export const createKnowledgeSchema = z.object({
   useAi: z.boolean().optional(),
 });
 
+export const bulkCreateKnowledgeSchema = z.object({
+  cards: z.array(createKnowledgeSchema).min(1).max(50),
+});
+
+export const batchKnowledgeAgentSchema = z.object({
+  rawText: z.string().optional(),
+  articleId: z.number().int().positive().optional(),
+  extraContext: z.string().optional().nullable(),
+  maxCards: z.number().int().min(3).max(12).default(8),
+}).refine((input) => Boolean(input.articleId || input.rawText?.trim()), {
+  message: "必须提供文章正文或选择一篇技术文章。",
+  path: ["rawText"],
+});
+
 export const updateKnowledgeProgressSchema = z.object({
   mastery: z.number().int().min(0).max(4).optional(),
   markReviewed: z.boolean().optional(),
@@ -658,7 +672,7 @@ export const startInterviewerSessionSchema = z.object({
 export const answerInterviewerSessionSchema = z.object({
   answer: z.string().min(1),
   turnId: z.number().int().positive().optional(),
-  mode: z.enum(["turn", "discussion"]).default("turn"),
+  mode: z.enum(["turn", "discussion", "relink_discussion"]).default("turn"),
   title: z.string().optional(),
   sourceTurnId: z.number().int().positive().optional(),
   transcriptSource: z.literal("text").default("text"),

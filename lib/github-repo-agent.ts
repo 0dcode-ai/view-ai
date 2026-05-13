@@ -100,7 +100,7 @@ export async function analyzeGithubRepository(repo: GithubTrendRepo): Promise<Gi
 }
 
 function resolveModelName() {
-  return process.env.OPENAI_MODEL || "GLM-5.1";
+  return process.env.OPENAI_MODEL || "deepseek-v4-pro";
 }
 
 function resolveModelLabel() {

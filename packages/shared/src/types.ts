@@ -20,6 +20,8 @@ import type {
   createAgentRunLogSchema,
   createExperienceSchema,
   createKnowledgeSchema,
+  bulkCreateKnowledgeSchema,
+  batchKnowledgeAgentSchema,
   createSourceDocumentSchema,
   evidenceRefSchema,
   experienceReportSchema,
@@ -128,6 +130,8 @@ export type ExperienceReport = z.infer<typeof experienceReportSchema>;
 export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
 
 export type CreateKnowledgeInput = z.infer<typeof createKnowledgeSchema>;
+export type BulkCreateKnowledgeInput = z.infer<typeof bulkCreateKnowledgeSchema>;
+export type BatchKnowledgeAgentInput = z.infer<typeof batchKnowledgeAgentSchema>;
 export type UpdateKnowledgeProgressInput = z.infer<typeof updateKnowledgeProgressSchema>;
 export type UpdateKnowledgeInput = z.infer<typeof updateKnowledgeSchema>;
 export type ParseResumeInput = z.infer<typeof parseResumeSchema>;

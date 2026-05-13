@@ -1,4 +1,24 @@
 services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: interview-ai-web
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+      DATABASE_URL: "file:./dev.db"
+      NEXT_PUBLIC_API_BASE_URL: ""
+      NEXT_PUBLIC_API_MIGRATED_RESOURCES: ""
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./prisma/dev.db:/app/prisma/dev.db
+
   postgres:
     image: postgres:16-alpine
     container_name: interview-ai-postgres

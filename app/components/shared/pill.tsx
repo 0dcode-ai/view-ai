@@ -9,17 +9,17 @@ interface PillProps {
 }
 
 const variantCls: Record<PillVariant, string> = {
-  default: "bg-stone-100 text-stone-700",
+  default: "bg-slate-100 text-slate-700",
   warn: "bg-amber-50 text-amber-700",
-  brand: "bg-zinc-900 text-white",
-  accent: "bg-zinc-100 text-zinc-700",
+  brand: "bg-sky-600 text-white",
+  accent: "bg-sky-50 text-sky-700",
 };
 
 export function Pill({ children, variant = "default" }: PillProps) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
+        "inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-xs font-medium",
         variantCls[variant],
       )}
     >

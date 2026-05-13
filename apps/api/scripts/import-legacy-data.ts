@@ -65,10 +65,13 @@ async function main() {
 }
 
 async function importQuestionTemplates() {
-  const filePath =
-    process.env.QUESTION_TEMPLATE_JSON_PATH ||
-    path.resolve(process.cwd(), "../../data/interview-internal-reference.json");
-  const templates = await readJson<TemplateInput[]>(filePath);
+  const templates = [
+    ...(await readJson<TemplateInput[]>(
+      process.env.QUESTION_TEMPLATE_JSON_PATH ||
+        path.resolve(process.cwd(), "../../data/interview-internal-reference.json"),
+    )),
+    ...(await readJson<TemplateInput[]>(path.resolve(process.cwd(), "../../data/leetcode-interview-reference.json"))),
+  ];
   let created = 0;
   let skipped = 0;
 

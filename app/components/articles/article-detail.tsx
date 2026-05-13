@@ -44,19 +44,19 @@ export function ArticleDetail({ article, onEdit, onDelete }: ArticleDetailProps)
   return (
     <div className="grid gap-4">
       {/* Hero */}
-      <div className="rounded-2xl bg-[linear-gradient(120deg,#18181b_0%,#3f3f46_55%,#f5f5f4_100%)] p-5 text-white shadow-[0_18px_40px_rgba(15,23,42,0.12)] ring-1 ring-black/5">
+      <div className="rounded-lg border border-sky-100 bg-[linear-gradient(120deg,#ffffff_0%,#eef7ff_58%,#eafcff_100%)] p-5 text-slate-950 shadow-[0_18px_40px_rgba(30,78,121,0.10)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             {article.topic && (
-              <Badge className="mb-3 border border-white/12 bg-white/10 text-white hover:bg-white/15">
+              <Badge className="mb-3 border border-sky-100 bg-sky-50 text-sky-700 hover:bg-sky-100">
                 {article.topic}
               </Badge>
             )}
-            <h3 className="text-xl font-bold leading-snug tracking-tight">
+            <h3 className="text-xl font-bold leading-snug">
               {article.title}
             </h3>
             {article.summary && (
-              <p className="mt-2 text-sm leading-relaxed text-white/78">
+              <p className="mt-2 text-sm leading-relaxed text-slate-600">
                 {article.summary}
               </p>
             )}
@@ -69,7 +69,7 @@ export function ArticleDetail({ article, onEdit, onDelete }: ArticleDetailProps)
                 rel="noreferrer"
                 className={cn(
                   buttonVariants({ variant: "outline", size: "sm" }),
-                  "border-white/15 bg-white/10 text-white hover:bg-white/16 hover:text-white",
+                  "border-sky-100 bg-white text-sky-700 hover:bg-sky-50 hover:text-sky-800",
                 )}
               >
                 <ExternalLink className="size-3.5" /> 来源

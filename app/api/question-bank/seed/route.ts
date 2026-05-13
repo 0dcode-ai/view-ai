@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { findOrCreateCompany, findOrCreateTopic } from "@/lib/db-helpers";
 import { loadInterviewInternalReferenceQuestions } from "@/lib/interview-internal-reference";
+import { loadLeetCodeInterviewReferenceQuestions } from "@/lib/leetcode-interview-reference";
 import { seedQuestions } from "@/lib/question-bank";
 import { tagsToJson } from "@/lib/tags";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   let created = 0;
   let skipped = 0;
-  const questions = [...seedQuestions, ...(await loadInterviewInternalReferenceQuestions())];
+  const questions = [...seedQuestions, ...(await loadInterviewInternalReferenceQuestions()), ...(await loadLeetCodeInterviewReferenceQuestions())];
 
   for (const item of questions) {
     const existing = await prisma.knowledgeCard.findFirst({
