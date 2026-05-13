@@ -96,7 +96,7 @@ function isInterviewPath(path: string) {
 
 function isInterviewerSessionPath(path: string) {
   const pathname = path.split("?")[0] ?? "";
-  return pathname === "/api/interviewer-sessions/start" || /^\/api\/interviewer-sessions\/\d+\/(answer|finish)$/.test(pathname);
+  return pathname === "/api/interviewer-sessions/start" || pathname === "/api/interviewer-sessions/direct" || /^\/api\/interviewer-sessions\/\d+\/(answer|finish)$/.test(pathname);
 }
 
 function isReviewPath(path: string) {

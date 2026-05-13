@@ -385,6 +385,11 @@ export type InterviewerSessionSummary = {
   }>;
 };
 
+export type InterviewerDirectResponse = {
+  session: InterviewSession;
+  summary: InterviewerSessionSummary;
+};
+
 export type InterviewSession = {
   id: number;
   mode: InterviewMode;

@@ -12,6 +12,7 @@ import {
   bulkCreateKnowledgeSchema,
   batchKnowledgeAgentSchema,
   createSourceDocumentSchema,
+  directInterviewerSessionSchema,
   generateSprintSchema,
   finishInterviewSchema,
   parseExperienceSchema,
@@ -274,6 +275,11 @@ class InterviewerSessionsController {
   @Post("start")
   start(@CurrentUser() user: AuthUser, @Body() body: unknown) {
     return this.core.startInterviewerSession(user, parseBody(startInterviewerSessionSchema, body));
+  }
+
+  @Post("direct")
+  direct(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.core.directInterviewerSession(user, parseBody(directInterviewerSessionSchema, body));
   }
 
   @Post(":id/answer")

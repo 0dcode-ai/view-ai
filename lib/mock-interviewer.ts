@@ -331,6 +331,57 @@ export function buildPrimaryTurns(plan: InterviewerSessionPlan) {
     }));
 }
 
+function compactEvidence(text: string, maxLength = 420) {
+  const compact = text.trim().replace(/\s+/g, " ");
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}...` : compact;
+}
+
+export function buildDirectInterviewerAnswer(input: {
+  question: string;
+  intent?: string | null;
+  idealAnswer?: string | null;
+  context: InterviewerSessionContext;
+  rawInput: string;
+  order: number;
+}) {
+  const roleLabel = input.context.targetRole || "目标岗位";
+  const project =
+    input.context.parsedResume.projects[input.order - 1] ||
+    input.context.parsedResume.projects[0] ||
+    input.context.parsedResume.summary ||
+    "候选人核心经历";
+  const skillHints = uniqueStrings([...input.context.parsedResume.skills, ...input.context.jdKeywords]).slice(0, 4).join("、") || "岗位相关技术栈";
+  const evidence = compactEvidence(input.rawInput);
+
+  return [
+    `背景：围绕「${input.question}」，这段材料里最值得深挖的是 ${project}。`,
+    `我负责/我主导：候选人需要把个人职责讲清楚，重点说明自己在 ${skillHints} 上做过的设计、推进、排查或优化动作。`,
+    `方案：回答应按“背景 -> 目标 -> 方案 -> 取舍 -> 结果 -> 复盘”展开，并说明为什么这个方案适合当时的业务和岗位要求。`,
+    `结果：建议补充可验证指标，例如 20% 以上性能提升、故障率下降、交付周期缩短或覆盖用户规模变化；当前单字段输入摘要为：${evidence}`,
+    `复盘：最后要说清楚风险、成本、复杂度取舍，以及这段经历为什么能证明候选人匹配 ${roleLabel}。`,
+    input.intent ? `面试官考察点：${input.intent}` : "",
+    input.idealAnswer ? `参考好答案方向：${input.idealAnswer}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildDirectInterviewerTurnDrafts(input: {
+  plan: InterviewerSessionPlan;
+  context: InterviewerSessionContext;
+  rawInput: string;
+}) {
+  return buildPrimaryTurns(input.plan).map((turn) => ({
+    ...turn,
+    answer: buildDirectInterviewerAnswer({
+      question: turn.question,
+      intent: turn.intent,
+      idealAnswer: turn.idealAnswer,
+      context: input.context,
+      rawInput: input.rawInput,
+      order: turn.order,
+    }),
+  }));
+}
+
 export function markPrimaryAsked(plan: InterviewerSessionPlan, topicId: string) {
   const topics = plan.topics.map((topic) => topic.id === topicId ? { ...topic, asked: true } : topic);
   const askedTopic = topics.find((topic) => topic.id === topicId) ?? null;

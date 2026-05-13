@@ -28,7 +28,9 @@ import type {
   experienceListResponseSchema,
   generateSprintSchema,
   finishInterviewSchema,
+  directInterviewerSessionSchema,
   interviewerSessionAnswerResponseSchema,
+  interviewerSessionDirectResponseSchema,
   interviewerSessionFinishResponseSchema,
   interviewerSessionListResponseSchema,
   interviewerSessionStartResponseSchema,
@@ -142,11 +144,13 @@ export type AnswerInterviewInput = z.infer<typeof answerInterviewSchema>;
 export type AnswerInterviewBySessionInput = z.infer<typeof answerInterviewBySessionSchema>;
 export type FinishInterviewInput = z.infer<typeof finishInterviewSchema>;
 export type StartInterviewerSessionInput = z.infer<typeof startInterviewerSessionSchema>;
+export type DirectInterviewerSessionInput = z.infer<typeof directInterviewerSessionSchema>;
 export type AnswerInterviewerSessionInput = z.infer<typeof answerInterviewerSessionSchema>;
 export type InterviewerSessionListResponse = z.infer<typeof interviewerSessionListResponseSchema>;
 export type InterviewerSessionStartResponse = z.infer<typeof interviewerSessionStartResponseSchema>;
 export type InterviewerSessionAnswerResponse = z.infer<typeof interviewerSessionAnswerResponseSchema>;
 export type InterviewerSessionFinishResponse = z.infer<typeof interviewerSessionFinishResponseSchema>;
+export type InterviewerSessionDirectResponse = z.infer<typeof interviewerSessionDirectResponseSchema>;
 export type ReviewListResponse = z.infer<typeof reviewListResponseSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type SprintListResponse = z.infer<typeof sprintListResponseSchema>;

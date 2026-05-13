@@ -669,6 +669,16 @@ export const startInterviewerSessionSchema = z.object({
   path: ["resumeText"],
 });
 
+export const directInterviewerSessionSchema = z.object({
+  input: z.string().trim().min(20),
+  resumeProfileId: z.number().int().positive().optional(),
+  jdText: z.string().min(20).optional().or(z.literal("")).optional(),
+  targetRole: z.string().optional(),
+  targetCompanyName: z.string().optional(),
+  seniority: z.enum(["junior", "mid", "senior", "staff"]).default("mid"),
+  durationMinutes: z.union([z.literal(10), z.literal(20), z.literal(30), z.literal(45)]).default(20),
+});
+
 export const answerInterviewerSessionSchema = z.object({
   answer: z.string().min(1),
   turnId: z.number().int().positive().optional(),
@@ -698,6 +708,8 @@ export const interviewerSessionFinishResponseSchema = z.object({
   session: interviewSessionSchema,
   summary: interviewerSessionSummarySchema,
 });
+
+export const interviewerSessionDirectResponseSchema = interviewerSessionFinishResponseSchema;
 
 export const reviewCardSchema = z.object({
   id: z.number(),
